@@ -121,7 +121,7 @@ jobs:
           test -f "$BINPATH"
           mkdir -p "$STAGE/docs"
           cp "$BINPATH" "$STAGE/"
-          cp README.md "$STAGE/README.md"
+          cp README.md LICENSE CHANGELOG.md "$STAGE/"
           cp docs/YOU-NEED-THE-ORIGINAL.md docs/NOTICE.md docs/DEVELOPERS.md "$STAGE/docs/"
           cp docs/YOU-NEED-THE-ORIGINAL.md "$STAGE/YOU-NEED-THE-ORIGINAL.md"
           cp docs/NOTICE.md "$STAGE/NOTICE"
@@ -150,9 +150,9 @@ jobs:
           NAME="antics-${VERSION}-${{ matrix.name }}"
           mkdir -p out
           if [ "${{ matrix.archive }}" = "zip" ]; then
-            7z a -tzip "out/${NAME}.zip" "$STAGE" > /dev/null
+            (cd stage && 7z a -tzip "../out/${NAME}.zip" "antics-${VERSION}-${{ matrix.name }}" > /dev/null)
           else
-            tar -czf "out/${NAME}.tar.gz" "$STAGE"
+            tar -czf "out/${NAME}.tar.gz" -C stage "antics-${VERSION}-${{ matrix.name }}"
           fi
           ls -l out
 
