@@ -1,0 +1,95 @@
+# CI workflow for the PUBLIC repository (root = the port directory).
+#
+# Copy this file to .github/workflows/ci.yml in the public repo.
+# Runs on every push and pull request: build + test, and a second job that compiles the exact
+# feature set the release workflow ships (`bundled` SDL2) so a tag cannot surprise us.
+#
+# No original game data is fetched or stored here. The tests that compare against recordings of the
+# original skip themselves when those recordings (and the original's own files) are absent, which is
+# always the case on CI.
+#
+# Version pins marked `# verify` were not checked from here (no network).
+
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: build + test (default features, system SDL2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: SDL2 dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libsdl2-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ci-default-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --release --locked --all-targets
+
+  release-features:
+    name: compile the shipped feature set (bundled + static SDL2)
+    runs-on: ubuntu-latest
+    env:
+      # sdl2-sys 0.38 ships SDL2 2.x's CMakeLists (cmake_minimum_required(VERSION 3.0.0)), which
+      # cmake >= 4 rejects: "Compatibility with CMake < 3.5 has been removed". Required, verified
+      # locally: without it the bundled build fails at cmake configure.
+      CMAKE_POLICY_VERSION_MINIMUM: '3.5'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ci-bundled-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build (bundled, static SDL2)
+        run: cargo build --release --locked --features window,bundled,static-link
+
+      - name: Test (bundled, static SDL2)
+        run: cargo test --release --locked --features window,bundled,static-link

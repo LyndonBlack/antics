@@ -1,0 +1,197 @@
+# Release workflow for the PUBLIC repository (root = the port directory).
+#
+# Copy this file to .github/workflows/release.yml in the public repo.
+# Trigger: pushing a tag that starts with `v` (e.g. v0.1.0). Nothing is published on a branch push.
+#
+# What it does: builds the binary for four targets with SDL2 compiled in from source
+# (`--features bundled,static-link`, so no SDL2 install is needed on the user's machine), runs the
+# test suite, packs an archive with the binary plus the docs, and attaches it to the GitHub release.
+#
+# ------------------------------------------------------------------------------------------------
+# VERIFIED WHEN THIS FILE WAS WRITTEN (offline, on the author's machine):
+#   cargo build --release --offline --features window,bundled,static-link   -> ok
+#   ldd target/release/antics | grep -i sdl                                 -> nothing (static)
+# ...but ONLY with CMAKE_POLICY_VERSION_MINIMUM=3.5 in the environment, because sdl2-sys 0.38 ships
+# SDL2 2.x's CMakeLists with `cmake_minimum_required(VERSION 3.0.0)` (SDLY/CMakeLists.txt line 5),
+# which cmake >= 4 rejects outright ("Compatibility with CMake < 3.5 has been removed"). Hence the env var on the build
+# steps below. Do not remove it unless you have checked the sdl2 version.
+# Every version pin marked `# verify` was NOT checked from here (no network); check it against the
+# current action/crate release before the first run.
+# ------------------------------------------------------------------------------------------------
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'   # see the note at the top: sdl2-sys 0.38 + cmake >= 4
+  BIN: antics
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04            # oldest still-supported glibc -> runs on older distros
+            triple: x86_64-unknown-linux-gnu
+            ext: ''
+            archive: tar.gz
+
+          - name: windows-x86_64
+            os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            ext: '.exe'
+            archive: zip
+          - name: macos-x86_64
+            os: macos-15-intel          # Intel
+            triple: x86_64-apple-darwin
+            ext: ''
+            archive: tar.gz
+
+          - name: macos-aarch64
+            os: macos-15                # Apple Silicon
+            triple: aarch64-apple-darwin
+            ext: ''
+            archive: tar.gz
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      # `bundled` compiles SDL2 from the source tree inside the sdl2-sys crate: it needs cmake and a
+      # C compiler, nothing else. No libsdl2-dev on Linux, no vcpkg on Windows.
+      - name: Build deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build
+
+      - name: Build deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cmake --version || brew install cmake
+
+      - name: Build deps (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake --version
+          # The MSVC toolchain ships with the runner image.
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.name }}-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build (release, bundled + static SDL2)
+        run: cargo build --release --locked --features window,bundled,static-link --target ${{ matrix.triple }}
+
+      # Tests that need the original game skip themselves when its files are absent, which is the
+      # case on CI: no original game data is ever fetched or stored here.
+      - name: Test
+        run: cargo test --release --locked --features window,bundled,static-link --target ${{ matrix.triple }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="stage/antics-${VERSION}-${{ matrix.name }}"
+          BINPATH="target/${{ matrix.triple }}/release/${BIN}${{ matrix.ext }}"
+          test -f "$BINPATH"
+          mkdir -p "$STAGE/docs"
+          cp "$BINPATH" "$STAGE/"
+          cp README.md "$STAGE/README.md"
+          cp docs/YOU-NEED-THE-ORIGINAL.md docs/NOTICE.md docs/DEVELOPERS.md "$STAGE/docs/"
+          cp docs/YOU-NEED-THE-ORIGINAL.md "$STAGE/YOU-NEED-THE-ORIGINAL.md"
+          cp docs/NOTICE.md "$STAGE/NOTICE"
+          printf '%s\n' \
+            'This binary is statically linked against SDL2 (built from source during CI), so you do' \
+            'not need to install SDL2 to run it.' \
+            'You DO need your own copy of Spy vs. Spy III: Arctic Antics -- read' \
+            'docs/YOU-NEED-THE-ORIGINAL.md and run the --install command in it.' \
+            > "$STAGE/docs/SDL2-NOTE.txt"
+
+          # --- guard: the archive must contain no game data, art or recordings --------------
+          # `find` here is git-bash's GNU find on the Windows runner, and `7z` is on PATH;
+          #
+          LEAK=$(find "$STAGE" -type f \( -iname '*.dat' -o -iname '*.bin' -o -iname '*.pic' \
+                   -o -iname '*.png' -o -iname '*.bmp' -o -iname '*.wav' \
+                   -o -iname '*.exe' -o -iname '*.dll' -o -iname '*.so' \) \
+                   -not -path "*/${BIN}${{ matrix.ext }}" -print || true)
+          if [ -n "$LEAK" ]; then
+            echo "refusing to publish: original-derived files in the archive:"; echo "$LEAK"; exit 1
+          fi
+          if find "$STAGE" -type f -size +20M | grep -q .; then
+            echo "refusing to publish: a file in the archive is larger than 20 MB"; exit 1
+          fi
+          # --------------------------------------------------------------------------------
+
+          NAME="antics-${VERSION}-${{ matrix.name }}"
+          mkdir -p out
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip "out/${NAME}.zip" "$STAGE" > /dev/null
+          else
+            tar -czf "out/${NAME}.tar.gz" "$STAGE"
+          fi
+          ls -l out
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            out/*.zip
+            out/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -lR dist
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            `antics` - an unofficial, non-commercial reimplementation of the **engine** of
+            *Spy vs. Spy III: Arctic Antics* .
+
+            **These archives contain no original game data.** They contain the port, its source and
+            its documentation. To run it you need your own copy of the game: read
+            `YOU-NEED-THE-ORIGINAL.md` in the archive, then
+            `antics --install <folder with your copy>`.
+
+            Binaries are unsigned (no Apple notarisation, no Windows code-signing certificate):
+            see the troubleshooting section of `docs/YOU-NEED-THE-ORIGINAL.md`.

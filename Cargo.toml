@@ -1,0 +1,33 @@
+[package]
+name = "antics"
+version = "0.1.0"
+edition = "2021"
+description = "Native recreation of the engine of Spy vs. Spy III: Arctic Antics (MS-DOS) - runs on your own copy of the game, no original data included"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/LyndonBlack/antics"
+readme = "README.md"
+keywords = ["game", "engine", "reimplementation", "dos"]
+categories = ["games", "emulators"]
+
+[dependencies]
+# The headless paths (intro, setup selector, round viewport) need nothing beyond std: a 320x200
+# indexed framebuffer, a BMP writer and a tiny argument parser. SDL2 arrives only for the windowed
+# front-end (milestone 3), behind the default-on `window` feature so it can be switched off with
+# `--no-default-features` on a machine without the SDL2 dev libraries.
+# ADR 0001 decided Rust + sdl2 0.38 against the system SDL2 2.32.10 dev libraries.
+sdl2 = { version = "0.38", optional = true }
+
+[features]
+default = ["window"]
+window = ["dep:sdl2"]
+# Release-build passthroughs to rust-sdl2 0.38. Checked against the feature list of sdl2 0.38.0 as
+# published (it declares exactly `bundled = ["sdl2-sys/bundled"]` and
+# `static-link = ["sdl2-sys/static-link"]`, nothing else on that axis).
+#   bundled      builds SDL2 from the source tree shipped inside the sdl2-sys crate: needs cmake and
+#                a C compiler at build time, needs no SDL2 installed at run time.
+#   static-link  links statically against the SDL2 that pkg-config finds.
+# Neither adds default behaviour - with no flags passed the build is byte-for-byte the old one.
+# Both imply `window`, because `sdl2/bundled` would otherwise pull the SDL2 crate in without
+# turning on the `window` cfg that the front-end's own code is gated by.
+bundled = ["window", "sdl2/bundled"]
+static-link = ["window", "sdl2/static-link"]
