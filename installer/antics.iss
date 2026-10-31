@@ -137,8 +137,8 @@ begin
   begin
     P := ExpandConstant('{userappdata}\antics');
     if DirExists(P) and (not UninstallSilent) then
-      if MsgBox('Also remove the copy of the game files that antics made in' + #13#10 + P + ' ?' +
-                #13#10#13#10 + 'Your original game folder is not touched.', mbConfirmation, MB_YESNO) = IDYES then
+      if MsgBox('Also remove the copy of the game files that antics made in' + #13#10 + P + ' ?' + #13#10#13#10 +
+                'Your original game folder is not touched.', mbConfirmation, MB_YESNO) = IDYES then
         DelTree(P, True, True, True);
   end;
 end;
