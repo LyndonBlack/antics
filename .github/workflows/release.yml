@@ -195,10 +195,12 @@ jobs:
           if (Test-Path $log) { Get-Content $log | Select-Object -Last 60 }
           if (-not (Test-Path "$dir\antics.exe")) { Get-ChildItem -Recurse $dir -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }; throw "installer did not install antics.exe" }
           if (-not (Test-Path "$dir\LICENSE")) { throw "installer did not install LICENSE" }
-          & "$dir\antics.exe" --where
+          & "$dir\antics.exe" --where   # exits non-zero here on purpose: no game files are installed
+          $global:LASTEXITCODE = 0
           Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES"
           if (Test-Path "$dir\antics.exe") { throw "uninstall left antics.exe behind" }
           Get-Item $setup | Format-List Name,Length
+          exit 0
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
