@@ -66,6 +66,27 @@ original's own sequence: the intro — the MAXX OUT! card, then the animated arc
 ends by itself, or immediately on `Return`, `Space`, `Esc` or a click — then the setup selector, then
 the rounds, each of which returns to the selector. Closing the window quits at any point.
 
+### Windows installer
+
+On Windows there is also an installer, `antics-0.1.3-windows-x86_64-setup.exe`, on the Releases page.
+It installs for the current user only (no administrator rights), offers **Start Menu** and desktop
+shortcuts, and does the `--install` step for you:
+
+1. run the setup program;
+2. choose where to install antics (the default is fine);
+3. choose the folder that holds your own copy of the game — the one with `spy.exe` and `TRAP.PIC` in
+   it — or leave the box empty and run `antics.exe --install <folder>` later;
+4. finish, and start antics from the shortcut.
+
+The shortcut runs the game with no arguments, so no console window appears beside it, and a start-up
+problem (the game files not found, a window that cannot open) is reported in a message box rather
+than in a console that would close with the process. If you would rather see the console output, run
+`antics.exe --verbose` from `cmd`.
+
+SmartScreen may say **Windows protected your PC**, because the installer is not code-signed: choose
+**More info** → **Run anyway**. Like the rest of the release, the installer contains the program
+only — never the original game files.
+
 The binaries are unsigned. On macOS, right-click → **Open** (or
 `xattr -d com.apple.quarantine ./antics`); on Windows, **More info** → **Run anyway**. Details in
 [the original-game doc](docs/YOU-NEED-THE-ORIGINAL.md#troubleshooting).
@@ -148,7 +169,7 @@ aids — for anyone working on the port.
 
 ## Status
 
-Version 0.1.2. The intro, the setup selector and the round are playable end to end for one or two
+Version 0.1.3. The intro, the setup selector and the round are playable end to end for one or two
 players, and are verified against recordings of the original running. It is unofficial and
 non-commercial; see [docs/NOTICE.md](docs/NOTICE.md).
 

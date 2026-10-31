@@ -34,6 +34,15 @@
 //! Errors, usage errors, `--install`/`--where` and every flag that exists to print something are
 //! unconditional, exactly as before.
 //!
+//! **No console box on Windows (v0.1.3).** `antics.exe` is a console-subsystem binary and the
+//! Windows installer's shortcuts run it with no arguments, so Windows gave it a console of its own:
+//! a black box beside the game, and a fatal start-up error printed to a console that closed with
+//! the process. A launch that owns its console (`GetConsoleProcessList` sees one process) and is not
+//! redirected now detaches it just before the window opens, and repeats a fatal start-up error in a
+//! `MessageBoxW` — but only for a plain play, and never with `--verbose`. The decision is
+//! `gui_launch_plan`, a pure function tested on every platform; `src/winui.rs` carries it out and
+//! exists only on Windows. Launches from `cmd`/PowerShell and every headless path are untouched.
+//!
 //! The player's files are looked for in this order, so a released binary needs no flags at all: an
 //! explicit `--data-dir`/`--assets`, then the per-user data directory (`$XDG_DATA_HOME/antics`,
 //! `%APPDATA%\antics`, `~/Library/Application Support/antics`) when `--install` has written a set
@@ -47,6 +56,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+// **v0.1.3** — the one switch `fatal` consults: does a fatal start-up failure also go to a message
+// box? Set once from `main`, from `gui_launch_plan(...).box_on_fatal`, so nothing else may flip it.
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod chrome;
 mod cpu;
@@ -63,6 +75,11 @@ mod terrain;
 mod verbose;
 #[cfg(feature = "window")]
 mod window;
+// **v0.1.3** — the Windows console/message-box front-end (`FreeConsole`, `MessageBoxW`,
+// `GetConsoleProcessList`). Windows only: the module does not exist on any other target, and the
+// decision it serves (`gui_launch_plan`) is platform-independent and tested everywhere.
+#[cfg(windows)]
+mod winui;
 
 const W: usize = 320;
 const H: usize = 200;
@@ -1295,6 +1312,129 @@ fn plays_intro(play: bool, scene: &str, args: &[String]) -> bool {
     play && scene == "intro" && first_headless_flag(args).is_none()
 }
 
+// ---------------------------------------------------------------------------------------------
+// v0.1.3 (Windows): no console box beside the game, and a message box for a fatal start-up error
+// ---------------------------------------------------------------------------------------------
+//
+// **The defect.** `antics.exe` is a console-subsystem binary, and the Windows installer gives the
+// player Start Menu and desktop shortcuts that run it with no arguments. Windows therefore opens a
+// console for it: a black box beside the game while the intro plays, and — because the process ends
+// when the game ends — a box that flashes and vanishes. Worse, the one sentence that says *why* a
+// start-up failed went to that console, which closes with the process, so a player who never opened
+// a terminal saw a flash and nothing else.
+//
+// **The fix, in three parts.** (1) The fatal errors of the play path go through [`fatal`], which
+// still prints to stderr exactly as before and, for a GUI launch only, repeats the news in a
+// `MessageBoxW`. (2) The console is detached ([`detach_console`]) immediately before the window
+// opens — after the game data has been found, so every "your files are missing" message still has
+// its stderr and, if it is a GUI launch, its box. (3) A launch from `cmd`, PowerShell or Windows
+// Terminal is not touched at all: the console belongs to the shell, output is as it always was.
+//
+// **Why the decision is a separate, pure function.** None of this can be compiled or run on the
+// machine this was written on (there is no Windows toolchain), and "does a message box appear on a
+// start-up failure" is exactly the kind of behaviour that is expensive to get wrong. So the whole
+// decision is `gui_launch_plan`, a pure function of three booleans, with unit tests in
+// `launch_tests` that run on every platform; `src/winui.rs` only carries it out.
+
+/// **What a run does about its console** — the answer to [`gui_launch_plan`].
+///
+/// Two independent-looking questions with one answer each, kept apart because they are read in
+/// different places in `main` (the detach just before the window opens, the box on any fatal error
+/// along the way).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Plan {
+    /// Call `FreeConsole` immediately before the window opens, so no black box is left beside it.
+    detach_before_window: bool,
+    /// Repeat a fatal start-up error in a message box, after printing it to stderr.
+    box_on_fatal: bool,
+}
+
+/// **The v0.1.3 decision, in one pure function** (unit-tested on Linux, where `is_gui` is always
+/// false in a real run; see `launch_tests::the_gui_launch_plan`).
+///
+/// * `is_gui` — [`gui_launch`]: a Windows launch that owns its console and is not redirected.
+/// * `verbose` — `--verbose` / `-v`: the player asked for the console output, so the console stays
+///   (detaching it would silence the very thing they asked for) and the message box is not needed
+///   (the error is already readable on the console that stayed).
+/// * `play` — the command line is a plain play (no headless flag, no `--install`/`--where`). A
+///   headless run's console is its output channel, and `--install` runs from a shell by definition.
+///
+/// Off Windows, or from a terminal, or with `--verbose`, both fields are `false`: nothing changes.
+fn gui_launch_plan(is_gui: bool, verbose: bool, play: bool) -> Plan {
+    let gui_play = is_gui && play && !verbose;
+    Plan { detach_before_window: gui_play, box_on_fatal: gui_play }
+}
+
+/// **Is this a GUI launch?** — the Windows half of [`gui_launch_plan`]'s first argument: the console
+/// is this process's alone (`GetConsoleProcessList` sees exactly one process attached) *and* neither
+/// stream has been redirected. A double-click or a Start Menu shortcut is both; `antics > log.txt`
+/// and a launch from any shell are neither.
+#[cfg(windows)]
+fn gui_launch() -> bool {
+    winui::launched_from_gui() && !winui::streams_redirected()
+}
+
+/// Off Windows there is no console of our own to own, so nothing is ever a GUI launch and every
+/// line below this is inert — Linux and macOS behaviour is byte-identical to v0.1.2.
+#[cfg(not(windows))]
+fn gui_launch() -> bool {
+    false
+}
+
+/// Drop the console, on Windows. Off Windows: there is nothing to drop, and the plan never asks.
+#[cfg(windows)]
+fn detach_console() {
+    winui::detach_console();
+}
+
+#[cfg(not(windows))]
+fn detach_console() {}
+
+/// Is a fatal start-up failure also to be shown in a message box? Set once, in `main`, from the
+/// plan; `fatal` only reads it. Never true off Windows (`gui_launch` is `false` there).
+static FATAL_BOX: AtomicBool = AtomicBool::new(false);
+
+/// Arm or disarm the message box. Called once, in `main`, right after the plan is computed.
+fn set_fatal_boxes(on: bool) {
+    FATAL_BOX.store(on, Ordering::SeqCst);
+}
+
+/// Is the box armed?
+fn fatal_boxes() -> bool {
+    FATAL_BOX.load(Ordering::SeqCst)
+}
+
+/// **A fatal error on the play path.** Prints the message to stderr exactly as v0.1.2 did — the
+/// text, the stream and the exit code at the call site are unchanged — and, when this run started
+/// from a shortcut or a double-click on Windows, also puts it in a message box, because that run's
+/// console is about to be detached or already has been, and its stderr goes nowhere a player can
+/// read.
+fn fatal(msg: &str) {
+    fatal_telling(msg, msg)
+}
+
+/// The same, with a second wording for the box: the terminal keeps the precise text it always had,
+/// while the box gets plain words for someone who has never opened a terminal (the data-not-found
+/// message is the one that needs this — it is the failure a player who just ran the installer is
+/// most likely to meet, and it has to say what to do, not which file was expected where).
+fn fatal_telling(msg: &str, gui_msg: &str) {
+    // `writeln!` and not `eprintln!`: after `detach_console` (Windows) the process has no console,
+    // so a write to stderr **fails**, and `eprintln!` panics when its write fails — the panic would
+    // replace the intended exit code and, since it happens before the box below, the player would
+    // get no message at all. Same text, same stream, same newline; the error is simply ignored when
+    // there is nowhere to write.
+    use std::io::Write as _;
+    let _ = writeln!(std::io::stderr(), "{msg}");
+    if fatal_boxes() {
+        // Only Windows has a message box. Off Windows the switch can never be armed (`gui_launch`
+        // is `false`), so this whole block is the platform split and nothing else.
+        #[cfg(windows)]
+        crate::winui::message_box("antics", gui_msg, true);
+        #[cfg(not(windows))]
+        let _ = gui_msg;
+    }
+}
+
 /// **Open the SDL2 window, or say plainly why not.**
 ///
 /// A released binary has no other way in, so a failed window is never a silent success: the cause
@@ -1305,11 +1445,22 @@ fn open_window(scale: u32) -> Result<window::Window, ExitCode> {
     match window::Window::open("antics — Spy vs. Spy III: Arctic Antics", scale) {
         Ok(w) => Ok(w),
         Err(e) => {
-            eprintln!("antics: SDL could not open a window: {e}. Is a display available?");
-            eprintln!(
-                "antics: set DISPLAY (X11) or WAYLAND_DISPLAY (Wayland) and make sure the SDL2 \
-                 video backends are installed (Debian/Ubuntu: libsdl2-2.0-0). On a machine with no \
-                 display, the headless modes need no window: `antics --scene setup --shot FILE`."
+            // **v0.1.3** — the same two lines on stderr (one `eprintln!` of the joined text is the
+            // same bytes as two), and, for a Windows GUI launch, a box that says it in one sentence:
+            // DISPLAY and `apt install` mean nothing to someone who started this from a shortcut.
+            fatal_telling(
+                &format!(
+                    "antics: SDL could not open a window: {e}. Is a display available?\n\
+                     antics: set DISPLAY (X11) or WAYLAND_DISPLAY (Wayland) and make sure the SDL2 \
+                     video backends are installed (Debian/Ubuntu: libsdl2-2.0-0). On a machine with \
+                     no display, the headless modes need no window: `antics --scene setup --shot \
+                     FILE`."
+                ),
+                &format!(
+                    "antics could not open its window, so the game cannot start.\n\n{e}\n\n\
+                     If another full-screen program is running, close it and try again. If this \
+                     keeps happening, restart the computer and update your graphics driver."
+                ),
             );
             Err(ExitCode::from(7))
         }
@@ -1767,9 +1918,15 @@ fn main() -> ExitCode {
     // **stage 30** — `antics` with no arguments (or only window/data options) plays. v0.1.0 fell
     // through to the headless intro here and exited 0, which is exactly what the README, the release
     // notes and `--install`'s success message tell the player *not* to expect.
-    if !play && default_play(&argv) {
+    let default_play_path = default_play(&argv);
+    if !play && default_play_path {
         play = true;
     }
+    // **v0.1.3 (Windows)** — the one place the console decision is taken (see `gui_launch_plan`).
+    // `gui_launch()` is false off Windows and false when the console is shared with a shell, so
+    // both fields are false on every Linux/macOS run and on `antics` typed into a terminal.
+    let plan = gui_launch_plan(gui_launch(), verbose::on(), default_play_path);
+    set_fatal_boxes(plan.box_on_fatal);
     // The intro is the first screen of a plain "play". A command line that also asks for headless
     // output gets the headless render it asked for — and is told that `--play` was not used, rather
     // than having it silently ignored.
@@ -1806,7 +1963,10 @@ fn main() -> ExitCode {
     let dirs = match install::resolve(assets_dir.as_deref(), data_dir.as_deref()) {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("{e}");
+            // **v0.1.3** — the failure a shortcut launch meets most often: the installer ran but no
+            // game folder was chosen. Terminal text unchanged; a Windows GUI launch gets the same
+            // news in plain words (see `install::not_found_gui`).
+            fatal_telling(&e, &install::not_found_gui(&[]));
             return ExitCode::from(4);
         }
     };
@@ -2182,10 +2342,12 @@ fn main() -> ExitCode {
             match intro::Intro::load(&dir) {
                 Ok(i) => Some(i),
                 Err(e) => {
+                    // **v0.1.3** — `fatal` (stderr as before, plus a box for a Windows GUI launch)
                     if dir.join("TITLE.DAT").is_file() {
-                        eprintln!("cannot run the intro engine: {e}");
+                        fatal(&format!("cannot run the intro engine: {e}"));
                     } else {
-                        eprintln!("{}", install::not_found_looking_in(&[&dir]));
+                        fatal_telling(&install::not_found_looking_in(&[&dir]),
+                                      &install::not_found_gui(&[&dir]));
                     }
                     return ExitCode::from(3);
                 }
@@ -2198,8 +2360,13 @@ fn main() -> ExitCode {
         let setup = match load_setup(&dir) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("{}\n(the selector is drawn from spy.exe + TRAP.PIC: {e})",
-                          install::not_found_looking_in(&[&dir]));
+                // **v0.1.3** — "cannot draw the selector" is fatal for a player too: boxed.
+                fatal_telling(
+                    &format!("{}\n(the selector is drawn from spy.exe + TRAP.PIC: {e})",
+                             install::not_found_looking_in(&[&dir])),
+                    &format!("antics could not draw the setup screen.\n\n{}",
+                             install::not_found_gui(&[&dir])),
+                );
                 return ExitCode::from(5);
             }
         };
@@ -2223,10 +2390,26 @@ fn main() -> ExitCode {
             let exe = match fs::read(exe_dir.join("spy.exe")) {
                 Ok(b) => b,
                 Err(e) => {
-                    eprintln!("{}: {e}", exe_dir.join("spy.exe").display());
+                    // **v0.1.3** — missing `spy.exe` on the play path: boxed.
+                    let path = exe_dir.join("spy.exe").display().to_string();
+                    fatal_telling(
+                        &format!("{path}: {e}"),
+                        &format!(
+                            "antics could not read spy.exe from your copy of the game.\n\n\
+                             {path}\n{e}\n\n\
+                             Run the antics installer again, or choose your game folder in it."
+                        ),
+                    );
                     return ExitCode::from(3);
                 }
             };
+            // **v0.1.3 (Windows)** — the game data is in hand and the window is the next thing to
+            // appear, so this is where the console goes. After it, `fatal`'s stderr write has
+            // nowhere to land, which is why it arms the message box; with `--verbose` the console
+            // stays, because the player asked to read it.
+            if plan.detach_before_window {
+                detach_console();
+            }
             let mut win = match open_window(scale) {
                 Ok(w) => w,
                 Err(code) => return code,
@@ -2239,7 +2422,9 @@ fn main() -> ExitCode {
                     Ok(IntroFlow::Quit) => return ExitCode::SUCCESS,
                     Ok(_) => {}
                     Err(e) => {
-                        eprintln!("{e}");
+                        // **v0.1.3** — after the detach this stderr write lands nowhere on a
+                        // Windows GUI launch, so the failure is boxed as well.
+                        fatal(&format!("{e}"));
                         return ExitCode::from(7);
                     }
                 }
@@ -2306,14 +2491,21 @@ fn main() -> ExitCode {
                                   sound_on, panel_auto, demo_stream, dump) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("{e}");
+                    // **v0.1.3** — same reason as the intro's: the console has been detached on a
+                    // Windows GUI launch, so a fatal error at the end of play is boxed too.
+                    fatal(&format!("{e}"));
                     ExitCode::from(7)
                 }
             };
         }
         #[cfg(not(feature = "window"))]
         if play {
-            eprintln!("this build has no window support (cargo feature `window` off)");
+            // **v0.1.3** — boxed for the same reason: a GUI launch has no one reading stderr.
+            fatal_telling(
+                "this build has no window support (cargo feature `window` off)",
+                "This copy of antics was built without its window, so it cannot play the game.\n\n\
+                 Download the normal release for Windows from the releases page.",
+            );
             return ExitCode::from(7);
         }
         if let Some(script) = keys {
@@ -3182,5 +3374,91 @@ mod launch_tests {
             assert_eq!(intro_dispatch_period(ft), want, "--fps -> {ft} ticks a frame");
         }
         assert_eq!(intro_dispatch_period(0), intro_dispatch_period(1), "0 ticks is a parse error");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // v0.1.3 — no console box beside the game, and a message box for a fatal start-up error
+    // -----------------------------------------------------------------------------------------
+    //
+    // The Windows half of this stage (`src/winui.rs`: `GetConsoleProcessList`, `FreeConsole`,
+    // `MessageBoxW`) cannot be compiled or run here, so everything that *decides* what to do is a
+    // pure function of three booleans and is tested below, on Linux. What is left in `winui.rs` is
+    // the call itself.
+
+    fn plan(detach: bool, boxed: bool) -> super::Plan {
+        super::Plan { detach_before_window: detach, box_on_fatal: boxed }
+    }
+
+    /// **The decision itself.** A double-click or a Start Menu shortcut on a plain play detaches the
+    /// console before the window opens and repeats a fatal error in a box; every other combination
+    /// changes nothing.
+    #[test]
+    fn the_gui_launch_plan() {
+        let plan_of = super::gui_launch_plan;
+        // the case the installer creates: a shortcut, no arguments → a GUI launch, plain play
+        assert_eq!(plan_of(true, false, true), plan(true, true), "a shortcut launch detaches + boxes");
+        // `antics -v` from the same shortcut: the player asked for the console, so it stays, and
+        // the error is already readable there — no box either
+        assert_eq!(plan_of(true, true, true), plan(false, false), "--verbose keeps the console");
+        // typed into cmd/PowerShell (the console is shared with the shell), or launched on Linux or
+        // macOS at all: `is_gui` is false, so nothing happens
+        assert_eq!(plan_of(false, false, true), plan(false, false), "a terminal launch is untouched");
+        // a headless command line (`--shot`, `--install`, `--where`, `--scene round --ds`, ...):
+        // its console is its output channel, whatever console it is
+        assert_eq!(plan_of(true, false, false), plan(false, false), "headless never detaches");
+        // and the two negatives together are still nothing
+        assert_eq!(plan_of(false, true, false), plan(false, false));
+    }
+
+    /// **The classifier and the plan agree about what a shortcut means.** The installer's shortcuts
+    /// run `antics.exe` with no arguments, so that command line — and only that shape of command
+    /// line — must both "play" and plan the detach.
+    #[test]
+    fn a_shortcut_launch_is_a_plain_play_and_detaches() {
+        for line in [&[][..], &["--play"][..], &["--scale", "4"][..], &["--no-sound"][..],
+                     &["--data-dir", "/d"][..]] {
+            let argv = args(line);
+            let play = default_play(&argv);
+            assert!(play, "{line:?} is a play");
+            let p = super::gui_launch_plan(true, false, play);
+            assert!(p.detach_before_window && p.box_on_fatal, "{line:?} from a shortcut");
+        }
+        // everything that names a headless mode (and `--install` / `--where`) keeps its console:
+        // the file it writes, or the report it prints, *is* the reason it was run
+        for line in [&["--shot", "f.bmp"][..], &["--frame", "350", "--shot", "f.bmp"][..],
+                     &["--scene", "setup", "--shot", "f.bmp"][..], &["--install", "/game"][..],
+                     &["--where"][..], &["--state", "s.json"][..], &["--demo"][..]] {
+            let play = default_play(&args(line));
+            assert!(!play, "{line:?} is not a play");
+            let p = super::gui_launch_plan(true, false, play);
+            assert!(!p.detach_before_window && !p.box_on_fatal, "{line:?} keeps its console");
+        }
+    }
+
+    /// **Off Windows there is no GUI launch, whatever the console looks like.** `gui_launch` is the
+    /// Windows-only half; this is the assertion that Linux and macOS runs of every previous command
+    /// line are byte-identical to v0.1.2 (no detach, no box: nothing in this stage can fire).
+    #[test]
+    fn a_gui_launch_never_happens_off_windows() {
+        if cfg!(windows) {
+            return; // on Windows it depends on the console; the plan tests above cover the logic
+        }
+        assert!(!super::gui_launch(), "no console of our own off Windows");
+        let p = super::gui_launch_plan(super::gui_launch(), false, true);
+        assert_eq!(p, plan(false, false), "so every run off Windows is inert");
+    }
+
+    /// **The box is off unless the plan armed it.** The switch is a process-wide flag set once in
+    /// `main` from `plan.box_on_fatal`; a test run starts with it off (that is what keeps the rest
+    /// of the suite's stderr clean) and it reads back what was stored.
+    #[test]
+    fn the_fatal_box_is_off_by_default_and_follows_the_plan() {
+        let was = super::fatal_boxes();
+        assert!(!was, "a test process never arms the message box by itself");
+        super::set_fatal_boxes(true);
+        assert!(super::fatal_boxes());
+        super::set_fatal_boxes(false);
+        assert!(!super::fatal_boxes());
+        super::set_fatal_boxes(was);
     }
 }

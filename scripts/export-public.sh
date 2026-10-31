@@ -64,7 +64,7 @@ for f in "${KEEP_FILES[@]}"; do
     cp -p "$SRC/$f" "$TARGET/$f"
 done
 
-for d in src docs scripts; do
+for d in src docs scripts installer; do
     [ -d "$SRC/$d" ] || die "missing $d/ in the crate"
     cp -Rp "$SRC/$d" "$TARGET/$d"
 done

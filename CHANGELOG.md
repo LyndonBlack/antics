@@ -4,6 +4,21 @@ All notable changes to `antics` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-10-31
+
+### Added
+- A Windows installer (`antics-0.1.3-windows-x86_64-setup.exe`): per-user, no administrator rights,
+  and it offers the Start Menu and desktop shortcuts. It installs the program only — never the game
+  — and asks which folder holds your own copy of the original, then runs `antics.exe --install` on
+  it.
+
+### Changed
+- On Windows, launching `antics.exe` from a shortcut or a double-click no longer leaves a console
+  window open beside the game, and a fatal start-up error (the original game files not found, a
+  window that cannot open) is shown in a message box instead of being printed to a console that
+  closes with the process. A launch from `cmd` or PowerShell is unchanged, and so is every headless
+  flag; `--verbose` keeps the console, because it was asked for.
+
 ## [0.1.2] - 2026-10-31
 
 ### Changed

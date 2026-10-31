@@ -1,0 +1,10 @@
+antics is an unofficial, non-commercial reimplementation of the engine of Spy vs. Spy III: Arctic Antics.
+
+IT DOES NOT CONTAIN THE GAME.
+No program code, graphics, sound or data from the original game is included in this installer or in antics. To play you must supply the original game files from a copy you are entitled to use. The next steps ask you where they are; the installer copies nine of them into your own user folder and checks each one.
+
+antics is original source code written from scratch in Rust. It is not a fork or port of any existing engine, and it uses no third-party game engine (SDL2 is used only for the window, keyboard and sound output).
+
+antics is not affiliated with, authorised by or endorsed by the rights holders of the game or of the Spy vs. Spy property. Spy vs. Spy and all related names are trademarks of their respective owners.
+
+antics is free software under the GNU General Public License v3.0 or later (shown next). It is provided "as is", without warranty of any kind.

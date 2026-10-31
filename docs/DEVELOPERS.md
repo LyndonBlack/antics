@@ -122,6 +122,42 @@ through `install::command()` — `./antics` on unix, `antics.exe` on Windows —
 and never a guess at the player's `PATH`. `install::tests::the_message_prints_the_command_that_works_on_this_platform`
 and `the_not_found_message_tells_the_player_what_to_do` hold that.
 
+### The console on Windows (v0.1.3)
+
+`antics.exe` is a **console-subsystem** binary, and the Windows installer gives the player Start
+Menu and desktop shortcuts that run it with no arguments. Windows therefore creates a console for
+it: a black box beside the game, and — because the process exits with the game — a box that flashes
+and vanishes, taking with it the one line that said why a start-up failed.
+
+The rule, in one place: `gui_launch_plan(is_gui, verbose, play) -> Plan` in `src/main.rs`, a pure
+function whose fields are `detach_before_window` and `box_on_fatal`. Both are true only when
+
+* `is_gui` — `gui_launch()`, i.e. Windows **and** `GetConsoleProcessList` sees exactly one process on
+  this console (a shortcut or a double-click; from `cmd`/PowerShell the shell is attached too, so the
+  count is ≥ 2) **and** neither stdout nor stderr is redirected;
+* `play` — `default_play(&argv)`: a plain play, not a headless flag, not `--install`/`--where`;
+* `!verbose` — `--verbose` means the player asked for the console, so it stays (and the box is not
+  needed: the error is already readable).
+
+`src/winui.rs` (Windows only) is the thin half: `GetConsoleProcessList`, `GetFileType`/
+`GetStdHandle`, `FreeConsole`, `MessageBoxW`, declared by hand with `extern "system"` — no `winapi`
+or `windows-sys` dependency, so the crate still builds offline. Off Windows the module does not
+exist, `gui_launch()` is `false`, and every line of this stage is inert.
+
+How the play path uses it: the fatal errors of that path (`install::resolve` failing, the intro
+engine, the selector, `spy.exe`, the window, `play_app`) go through `fatal(msg)` /
+`fatal_telling(msg, gui_msg)`, which prints to stderr **exactly as before** and, when `box_on_fatal`
+is set, also calls `message_box("antics", gui_msg, true)`. `gui_msg` is the plain-words version for
+someone who never opened a terminal (`install::not_found_gui`); the terminal keeps the precise text.
+`detach_console()` runs immediately before `open_window`, after the data check — so a missing-data
+message still has its stderr, and after it the box is the only channel left.
+
+Two rules for new code: a **fatal** error on the play path goes through `fatal` (never a bare
+`eprintln!`), and a **headless** path never does — its console is its output channel. The tests are
+`launch_tests::the_gui_launch_plan`, `a_shortcut_launch_is_a_plain_play_and_detaches`,
+`a_gui_launch_never_happens_off_windows`, `the_fatal_box_is_off_by_default_and_follows_the_plan` and
+`install::tests::the_message_box_wording_says_what_to_do_in_plain_words`; all of them run on Linux.
+
 ## The player's nine files (the install directory)
 
 `antics --install <folder>` **copies** these nine files into the per-user data directory, after

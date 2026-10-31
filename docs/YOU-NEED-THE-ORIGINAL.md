@@ -107,6 +107,21 @@ Expand-Archive -Path .\spy-vs-spy-3.zip -DestinationPath .\svs3
 .\antics.exe
 ```
 
+**Or use the installer:** `antics-0.1.3-windows-x86_64-setup.exe` (on the Releases page) installs
+antics for the current user only — no administrator rights — and does steps 2 and 3 for you:
+
+1. run the setup program;
+2. choose where to install antics (the default is fine);
+3. choose the folder holding your own copy of the game — the one with `SPY.EXE` and `TRAP.PIC` in
+   it — or leave the box empty and run `antics.exe --install <folder>` later;
+4. finish, then start antics from the **Start Menu** shortcut (or the desktop one, if you asked for
+   it). The shortcut runs the game directly: no console window beside it, and a start-up problem is
+   reported in a message box rather than in a console that would close with it.
+
+SmartScreen may say **Windows protected your PC** because the installer is not code-signed: choose
+**More info** → **Run anyway**. The zip above remains available if you would rather place the files
+yourself.
+
 ### macOS
 
 ```bash
@@ -213,7 +228,14 @@ with `cargo build --release` — same code, no quarantine.
 
 **Windows: "Windows protected your PC" (SmartScreen).** The binary is unsigned. Click **More info** →
 **Run anyway**. If your browser marked the download, right-click the zip → **Properties** →
-**Unblock** before extracting.
+**Unblock** before extracting. The same message, and the same answer, applies to the installer.
+
+**Windows: the shortcut flashes and nothing happens, or I want to see what it is doing.** The
+installer's shortcuts run the game directly, so there is no console window and a start-up failure
+(usually: the original game files not found) is reported in a message box telling you to run the
+installer again. For the console output — the intro's timing, the window, the speaker, every pickup
+and room change — open `cmd` and run `antics.exe --verbose` from the folder you installed it in
+(usually `%LOCALAPPDATA%\Programs\antics`): launched from a shell, antics keeps its console.
 
 **The window is tiny / huge.** `--scale N` sets the integer scale (1–8, default 3 = 960×600).
 

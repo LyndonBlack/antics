@@ -172,6 +172,31 @@ jobs:
           fi
           ls -l out
 
+      - name: Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart('v')
+          $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = @("C:\Program Files (x86)\Inno Setup 6\ISCC.exe", "C:\Program Files\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $iscc) { throw "Inno Setup not found" }
+          & $iscc "/DAppVersion=$v" "/DBinaryPath=..\target\${{ matrix.triple }}\release\antics.exe" installer\antics.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          $setup = "out\antics-$v-windows-x86_64-setup.exe"
+          if (-not (Test-Path $setup)) { throw "installer missing: $setup" }
+          # smoke test: unattended install (no game folder), check, unattended uninstall
+          $dir = Join-Path $env:RUNNER_TEMP "antics-install-test"
+          Start-Process -Wait -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir"
+          if (-not (Test-Path "$dir\antics.exe")) { throw "installer did not install antics.exe" }
+          if (-not (Test-Path "$dir\LICENSE")) { throw "installer did not install LICENSE" }
+          & "$dir\antics.exe" --where
+          Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES"
+          if (Test-Path "$dir\antics.exe") { throw "uninstall left antics.exe behind" }
+          Get-Item $setup | Format-List Name,Length
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -179,6 +204,7 @@ jobs:
           path: |
             out/*.zip
             out/*.tar.gz
+            out/*-setup.exe
           if-no-files-found: error
 
   release:

@@ -406,16 +406,7 @@ pub fn not_found() -> String {
 /// The same text, naming the directories *this* run actually looked in -- the installed data
 /// directory and any directory the caller passed.
 pub fn not_found_looking_in(also: &[&Path]) -> String {
-    let mut where_: Vec<String> = Vec::new();
-    if let Some(d) = data_root(None) {
-        where_.push(d.display().to_string());
-    }
-    for p in also {
-        let s = p.display().to_string();
-        if !where_.contains(&s) {
-            where_.push(s);
-        }
-    }
+    let where_ = looked_in(also);
     let mut msg = format!(
         "Original game data not found.\n\
          Run: {} --install <folder with your copy of Spy vs Spy III: Arctic Antics>\n",
@@ -431,6 +422,41 @@ pub fn not_found_looking_in(also: &[&Path]) -> String {
     }
     msg.push_str(&format!("(looked in {})\nSee docs/YOU-NEED-THE-ORIGINAL.md", where_.join(", ")));
     msg
+}
+
+/// **The same news, for a player who has no terminal** — the message box a Windows GUI launch shows
+/// (v0.1.3) when the game data cannot be found.
+///
+/// [`not_found_looking_in`] is written for someone reading a console: it names the command, the
+/// folder layout and a document. A player who double-clicked a shortcut and sees only a box has
+/// none of that context — they ran an installer minutes ago and expected a game — so this version
+/// says what is wrong, what to do about it in the world they can see (run the installer again, pick
+/// the game folder in it), and where the program looked, in one short paragraph. The terminal
+/// wording above is unchanged by it.
+pub fn not_found_gui(also: &[&Path]) -> String {
+    let where_ = looked_in(also);
+    format!(
+        "antics could not find the original game files.\n\n\
+         Run the antics installer again, or choose your game folder in it.\n\n\
+         (Looked in: {})",
+        where_.join(", ")
+    )
+}
+
+/// The directories a "not found" message names: the per-user data directory, then each caller
+/// directory, without repeats.
+fn looked_in(also: &[&Path]) -> Vec<String> {
+    let mut where_: Vec<String> = Vec::new();
+    if let Some(d) = data_root(None) {
+        where_.push(d.display().to_string());
+    }
+    for p in also {
+        let s = p.display().to_string();
+        if !where_.contains(&s) {
+            where_.push(s);
+        }
+    }
+    where_
 }
 
 // ---- tests ---------------------------------------------------------------
@@ -762,6 +788,31 @@ mod tests {
         // the data directory it did look in is the per-user one
         let d = data_root(None).expect("a home directory");
         assert!(msg.contains(&d.display().to_string()), "{msg}");
+    }
+
+    /// **The message box's wording, for a player with no terminal** (v0.1.3, Windows).
+    ///
+    /// The console text [`the_not_found_message_tells_the_player_what_to_do`] pins names a command
+    /// and a document; a player who only ever sees a box has neither. So the box gets its own short
+    /// paragraph: what is wrong, what to do in the installer, and where the program looked — and the
+    /// console text is not changed by it.
+    #[test]
+    fn the_message_box_wording_says_what_to_do_in_plain_words() {
+        let msg = not_found_gui(&[]);
+        assert!(msg.starts_with("antics could not find the original game files."), "{msg}");
+        assert!(msg.contains("installer again"), "what to do: {msg}");
+        assert!(msg.contains("choose your game folder"), "the choice the installer offers: {msg}");
+        assert!(msg.contains("(Looked in: "), "and where it looked: {msg}");
+        let d = data_root(None).expect("a home directory");
+        assert!(msg.contains(&d.display().to_string()), "{msg}");
+        // the box never carries the console's command line, its PATH advice or a doc path: none of
+        // that is readable by someone who did not open a terminal
+        assert!(!msg.contains("--install"), "no command line in the box: {msg}");
+        assert!(!msg.contains("docs/"), "no document path in the box: {msg}");
+        assert!(!msg.contains("PATH"), "{msg}");
+        // the console text keeps every one of those (unchanged, and asserted above)
+        assert!(not_found().contains("--install"));
+        assert!(not_found().contains("docs/YOU-NEED-THE-ORIGINAL.md"));
     }
 
     /// **The command in the messages is the one that works there.** On Linux and macOS a binary in
