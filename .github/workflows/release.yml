@@ -189,8 +189,11 @@ jobs:
           if (-not (Test-Path $setup)) { throw "installer missing: $setup" }
           # smoke test: unattended install (no game folder), check, unattended uninstall
           $dir = Join-Path $env:RUNNER_TEMP "antics-install-test"
-          Start-Process -Wait -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=$dir"
-          if (-not (Test-Path "$dir\antics.exe")) { throw "installer did not install antics.exe" }
+          $log = Join-Path $env:RUNNER_TEMP "antics-setup.log"
+          $p = Start-Process -Wait -PassThru -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=`"$log`"","/DIR=`"$dir`""
+          Write-Host "setup exit code: $($p.ExitCode)"
+          if (Test-Path $log) { Get-Content $log | Select-Object -Last 60 }
+          if (-not (Test-Path "$dir\antics.exe")) { Get-ChildItem -Recurse $dir -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }; throw "installer did not install antics.exe" }
           if (-not (Test-Path "$dir\LICENSE")) { throw "installer did not install LICENSE" }
           & "$dir\antics.exe" --where
           Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES"
