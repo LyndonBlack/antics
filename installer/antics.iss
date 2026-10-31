@@ -59,7 +59,8 @@ Filename: "{app}\antics.exe"; Description: "Launch antics now"; Flags: nowait po
 
 [Code]
 var
-  GamePage: TInputDirWizardPage;
+  GamePage: TWizardPage;
+  GameEdit: TNewEdit;
   GameInstalled: Boolean;
 
 function GameFolderOk(Dir: String): Boolean;
@@ -67,17 +68,59 @@ begin
   Result := FileExists(AddBackslash(Dir) + 'spy.exe') and FileExists(AddBackslash(Dir) + 'TRAP.PIC');
 end;
 
-procedure InitializeWizard;
+procedure BrowseClick(Sender: TObject);
+var
+  D: String;
 begin
-  GamePage := CreateInputDirPage(wpSelectDir,
+  D := GameEdit.Text;
+  if BrowseForFolder('Select the folder that holds your copy of the game:', D, False) then
+    GameEdit.Text := D;
+end;
+
+{ A custom page, not TInputDirWizardPage: that one refuses an empty box, and "leave it empty to
+  set this up later" must work. }
+procedure InitializeWizard;
+var
+  Lbl: TNewStaticText;
+  Btn: TNewButton;
+begin
+  GamePage := CreateCustomPage(wpSelectDir,
     'Your copy of the original game',
-    'Where are the original game files?',
+    'Where are the original game files?');
+
+  Lbl := TNewStaticText.Create(GamePage);
+  Lbl.Parent := GamePage.Surface;
+  Lbl.Left := 0;
+  Lbl.Top := 0;
+  Lbl.Width := GamePage.SurfaceWidth;
+  Lbl.AutoSize := False;
+  Lbl.WordWrap := True;
+  Lbl.Height := ScaleY(70);
+  Lbl.Caption :=
     'antics does not include the game. Select the folder that holds your own copy of ' +
-    'Spy vs. Spy III: Arctic Antics (the folder with SPY.EXE and TRAP.PIC in it). ' +
-    'Leave the box empty to set this up later.',
-    False, '');
-  GamePage.Add('Folder with your copy of the game:');
-  GamePage.Values[0] := ExpandConstant('{param:GAMEDIR|}');
+    'Spy vs. Spy III: Arctic Antics (the folder with SPY.EXE and TRAP.PIC in it).' + #13#10#13#10 +
+    'Leave the box empty to set this up later.';
+
+  Btn := TNewButton.Create(GamePage);
+  Btn.Parent := GamePage.Surface;
+  Btn.Width := ScaleX(90);
+  Btn.Height := ScaleY(24);
+  Btn.Left := GamePage.SurfaceWidth - Btn.Width;
+  Btn.Top := Lbl.Top + Lbl.Height + ScaleY(8);
+  Btn.Caption := 'Browse...';
+  Btn.OnClick := @BrowseClick;
+
+  GameEdit := TNewEdit.Create(GamePage);
+  GameEdit.Parent := GamePage.Surface;
+  GameEdit.Left := 0;
+  GameEdit.Top := Btn.Top;
+  GameEdit.Width := Btn.Left - ScaleX(8);
+  GameEdit.Text := ExpandConstant('{param:GAMEDIR|}');
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = GamePage.ID) and WizardSilent;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -87,7 +130,7 @@ begin
   Result := True;
   if CurPageID = GamePage.ID then
   begin
-    D := Trim(GamePage.Values[0]);
+    D := Trim(GameEdit.Text);
     if (D <> '') and (not GameFolderOk(D)) then
     begin
       MsgBox('That folder does not contain SPY.EXE and TRAP.PIC.' + #13#10#13#10 +
@@ -105,7 +148,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    D := Trim(GamePage.Values[0]);
+    D := Trim(GameEdit.Text);
     if D = '' then
       Exit;
     D := RemoveBackslashUnlessRoot(D);
