@@ -33,6 +33,9 @@ pub struct Frame {
     pub pressed: Vec<String>,
     pub p1: Keys,
     pub p2: Keys,
+    /// A mouse button went down this frame. The intro takes a click as "skip", the way a player
+    /// clicking through a title sequence expects.
+    pub click: bool,
     pub quit: bool,
 }
 
@@ -60,6 +63,13 @@ impl Window {
         let scale = scale.clamp(1, 8);
         let sdl = sdl2::init().map_err(|e| format!("SDL init: {e}"))?;
         let video = sdl.video().map_err(|e| format!("SDL video: {e}"))?;
+        // SDL2's last-resort video driver is `dummy`, which "opens" a window that can never appear.
+        // On a box with no display driver at all that is a *silent* failure — the user sees nothing
+        // and the process exits 0 — so it is an error here.
+        let explicit = std::env::var_os("SDL_VIDEODRIVER").is_some();
+        if let Some(cause) = no_display_driver(video.current_video_driver(), explicit) {
+            return Err(cause);
+        }
         let window = video
             .window(title, crate::W as u32 * scale, crate::H as u32 * scale)
             .position_centered()
@@ -87,6 +97,7 @@ impl Window {
         for ev in self.pump.poll_iter() {
             match ev {
                 Event::Quit { .. } => f.quit = true,
+                Event::MouseButtonDown { .. } => f.click = true,
                 Event::KeyDown { keycode: Some(k), repeat: false, .. } => {
                     if let Some(name) = key_name(k) {
                         f.pressed.push(name.to_string());
@@ -125,10 +136,17 @@ impl Window {
         f
     }
 
-    /// Show one 320x200 indexed frame, scaled by whole pixels.
+    /// Show one 320x200 indexed frame, scaled by whole pixels, in the round's palette.
     pub fn present(&mut self, screen: &Screen) -> Result<(), String> {
+        self.present_with(screen, &crate::round::ROUND_PALETTE)
+    }
+
+    /// The same with a caller's palette: the intro's MAXX card is CGA **palette 0** (`green/red/
+    /// yellow`), while the arctic scene and every round screen are palette 1 (`cyan/magenta/white`).
+    /// Presenting the card through the round palette would draw it in the wrong colours.
+    pub fn present_with(&mut self, screen: &Screen, palette: &[[u8; 3]; 4]) -> Result<(), String> {
         for (i, &v) in screen.idx.iter().enumerate().take(crate::PIXELS) {
-            let c = crate::round::ROUND_PALETTE[(v & 3) as usize];
+            let c = palette[(v & 3) as usize];
             // SDL's RGB24 really is R, G, B (the B, G, R order is a BMP-file trap, see ADR 0001).
             self.rgb[i * 3] = c[0];
             self.rgb[i * 3 + 1] = c[1];
@@ -280,6 +298,22 @@ impl Speaker {
 
 }
 
+/// **Is the video driver SDL chose one that cannot show a window?**
+///
+/// `dummy` is SDL2's last resort when no display driver initialises, and `offscreen` is its
+/// headless counterpart in newer builds: either one draws nothing, so a run that got one of them is
+/// a run the player sees nothing of. Only SDL's *own* choice is an error — `SDL_VIDEODRIVER=dummy`
+/// set by the caller is deliberate (the headless smoke tests use it). Returns the cause for the
+/// error message, or `None` when the driver can draw.
+fn no_display_driver(driver: &str, explicit_driver: bool) -> Option<String> {
+    if explicit_driver || !matches!(driver, "dummy" | "offscreen") {
+        return None;
+    }
+    Some(format!(
+        "no display driver available: SDL fell back to its `{driver}` driver, which draws nothing"
+    ))
+}
+
 /// The key names the setup selector's own key handler uses.
 fn key_name(k: Keycode) -> Option<&'static str> {
     match k {
@@ -294,5 +328,32 @@ fn key_name(k: Keycode) -> Option<&'static str> {
         Keycode::F2 => Some("f2"),
         Keycode::P => Some("p"),
         _ => None,
+    }
+}
+
+// ---- tests ---------------------------------------------------------------
+//
+// Pure ones only: no SDL, so they run on a machine with no display, which is exactly the case the
+// check below is about.
+#[cfg(test)]
+mod tests {
+    use super::no_display_driver;
+
+    /// **Stage 30 — the silent headless exit.** SDL2 reports success when it falls back to its
+    /// `dummy` video driver: the window is created and never appears, which is how the owner saw
+    /// "nothing happens" on a box with no display. That is now an error that names the driver.
+    #[test]
+    fn a_dummy_video_fallback_is_an_error_unless_the_caller_asked_for_it() {
+        for d in ["dummy", "offscreen"] {
+            let m = no_display_driver(d, false).expect("auto-selected headless driver is an error");
+            assert!(m.contains(d), "the message names the driver: {m}");
+            assert!(m.contains("draws nothing"), "and what is wrong with it: {m}");
+            assert!(no_display_driver(d, true).is_none(),
+                    "SDL_VIDEODRIVER={d} is the caller's own choice");
+        }
+        // a real driver is never an error, whatever the environment says
+        for d in ["x11", "wayland", "cocoa", "windows", "kmsdrm"] {
+            assert!(no_display_driver(d, false).is_none(), "{d} draws");
+        }
     }
 }

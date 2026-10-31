@@ -57,6 +57,11 @@ into a per-user directory: `~/.local/share/antics` (Linux, or `$XDG_DATA_HOME/an
 overrides it for one run. If the data is missing, the program says so and tells you the command to
 run.
 
+Run `antics` with no arguments (or `antics --play`) to play. It opens the window and plays the
+original's own sequence: the intro — the MAXX OUT! card, then the animated arctic title scene, which
+ends by itself, or immediately on `Return`, `Space`, `Esc` or a click — then the setup selector, then
+the rounds, each of which returns to the selector. Closing the window quits at any point.
+
 The binaries are unsigned. On macOS, right-click → **Open** (or
 `xattr -d com.apple.quarantine ./antics`); on Windows, **More info** → **Run anyway**. Details in
 [the original-game doc](docs/YOU-NEED-THE-ORIGINAL.md#troubleshooting).
@@ -92,6 +97,9 @@ statically. Neither changes what the program does.
 current frame. In the setup selector, arrows move the ring and `RETURN` changes the option; on `GO!`
 `RETURN` starts the round.
 
+The intro comes first and plays by itself; `RETURN`, `Space`, `Esc` or a click skips it. `Esc` on
+the selector leaves the game, and closing the window quits wherever you are.
+
 A tap of fire is the original's button A. Holding fire and pressing a direction is its button B:
 pick up, put away, dig, bury, open the trapulator, or throw a snowball — standing on an item and
 tapping picks it up (a mound means dig), tapping again puts it away, and holding fire with a
@@ -101,20 +109,24 @@ direction buries it. The full gesture table, with the original's routines, is in
 ## Command line
 
 The window is the normal way to play; the other flags exist because the port is verified against
-recordings, and a few of them are handy.
+recordings, and a few of them are handy. A command line made only of window and data options
+(`--scale`, `--data-dir`, `--no-sound`, `--fps`, `--panel-auto`, ...) plays too; anything that asks
+for headless output (`--shot`, `--state`, `--frame`, `--scene`, `--script`, `--demo`, `--install`,
+`--where`) keeps its own meaning and does not open a window.
 
 | flag | meaning |
 |---|---|
-| `--play` | open the SDL2 window (3x integer scale, 960x600) |
+| *(none)* | play: the intro, then the selector, then the rounds |
+| `--play` | open the SDL2 window (3x integer scale, 960x600) — the same as no arguments |
 | `--scale N` | window scale, 1-8 |
 | `--data-dir DIR` | use a different data directory for this run |
-| `--scene setup` / `--scene round` | start on the selector / straight into a round |
+| `--scene setup --play` / `--scene round --play` | start on the selector / straight into a round |
 | `--island 0-6` | iceberg shape |
 | `--launch 0\|1` | launch site hidden (0) or revealed (1) |
 | `--players 0\|1` | one spy (the original's default) or both |
 | `--difficulty 0-4` | shown as 1-5 |
 | `--seed N` | pin the round's object layout and start cells |
-| `--frame N` | render one intro frame headless (0-653) |
+| `--frame N` | render one intro state headless, 0 (the card) to 1841 (the last one) |
 | `--shot FILE` | write the frame as a 24-bit BMP, 320x200 |
 | `--state FILE` | write the frame's state as JSON |
 | `--fps F` | override the frame period (the original is 9.2298 fps) |
@@ -124,7 +136,7 @@ aids — for anyone working on the port.
 
 ## Status
 
-Version 0.1.0. The intro, the setup selector and the round are playable end to end for one or two
+Version 0.1.1. The intro, the setup selector and the round are playable end to end for one or two
 players, and are verified against recordings of the original running. It is unofficial and
 non-commercial; see [docs/NOTICE.md](docs/NOTICE.md).
 

@@ -1,6 +1,6 @@
 [package]
 name = "antics"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Native recreation of the engine of Spy vs. Spy III: Arctic Antics (MS-DOS) - runs on your own copy of the game, no original data included"
 license = "GPL-3.0-or-later"

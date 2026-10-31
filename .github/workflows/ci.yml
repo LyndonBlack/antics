@@ -77,7 +77,7 @@ jobs:
       - name: Build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Cache cargo
         uses: actions/cache@v6

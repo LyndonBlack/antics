@@ -19,6 +19,15 @@
 //!                  directory, then exit
 //!   --where        print which directory this run resolved to, then exit
 //!
+//! **No arguments plays** (stage 30). `antics`, `antics --play` and a command line made only of
+//! window/data options (`--scale`, `--data-dir`, `--no-sound`, `--fps`, `--panel-auto`, ...) open the
+//! window and run the original's own flow: the `spytitl.exe` intro, then the setup selector, then
+//! rounds, with Return/Space/Escape or a click skipping the intro. Anything that asks for headless
+//! output (`--shot`, `--state`, `--frame`, `--scene`, `--script`, `--tick-trace`, `--demo`,
+//! `--install`, `--where`, the recorded-dump switches) keeps exactly the behaviour it had, and
+//! `--scene setup --play` / `--scene round --play` are unchanged. A window that cannot open is an
+//! error (exit 7), never a silent exit 0.
+//!
 //! The player's files are looked for in this order, so a released binary needs no flags at all: an
 //! explicit `--data-dir`/`--assets`, then the per-user data directory (`$XDG_DATA_HOME/antics`,
 //! `%APPDATA%\antics`, `~/Library/Application Support/antics`) when `--install` has written a set
@@ -981,6 +990,124 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// Stage 30: the intro, in the window
+// ---------------------------------------------------------------------------------------------
+
+/// How the intro ended, so the caller knows whether to carry on to the selector.
+#[cfg(feature = "window")]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum IntroFlow {
+    /// the script machine reached its own end (the quit word `DS:0x9CC8`) — the selector follows
+    Finished,
+    /// Return, Space, Escape or a click: the player skipped it
+    Skipped,
+    /// the window was closed: quit, and do not open the selector
+    Quit,
+}
+
+/// **The recorded number of screens in the intro**: `recon/timeline/meta.json`'s 654 entries
+/// (index 0 is the MAXX card, 1..653 the arctic scene). The recorder sampled the original's
+/// machine-speed-dependent busy loop, so its capture *k* is only approximately dispatch 2k
+/// (`STAGE27A_SPEC.md` §5.1) — the port plays the **states**, spread over the number of screens the
+/// recording holds, so the intro body covers itself exactly once and still ends on its own quit
+/// word at dispatch 1,840 (1,842 states).
+#[cfg(any(feature = "window", test))]
+const INTRO_FRAMES: usize = 654;
+
+/// **The MAXX card's hold** — the original's one *absolute* wait: `entry` snapshots the wall clock
+/// into `DS:0x9C91` (granularity 4 s) and loops `CS:0x1990` until `>= 0x0F` seconds have passed
+/// (`STAGE27A_SPEC.md` §6). 15 s of the port's 240 Hz tick, so `--fps` does not shorten it.
+#[cfg(any(feature = "window", test))]
+const INTRO_CARD_HOLD_TICKS: u64 = 15 * game::TICK_HZ as u64;
+
+/// **One intro dispatch's length**, in thousandths of a tick.
+///
+/// The intro body is the recording's 654 screens at one original frame each (`frame_ticks` ticks of
+/// the 240 Hz timer), spread over the machine's 1,842 states: `26 * 654 / 1842 = 9.23` ticks a
+/// dispatch at the default frame period, i.e. 70.8 s for the whole scene. Integer arithmetic, so
+/// the total is exact and the sequence cannot drift.
+#[cfg(any(feature = "window", test))]
+fn intro_dispatch_period(frame_ticks: u32) -> u64 {
+    let states = (intro::LAST_STATE + 1) as u64;
+    (frame_ticks.max(1) as u64 * INTRO_FRAMES as u64 * 1000) / states
+}
+
+/// **The intro, played in the window** — the first screen of a no-argument run.
+///
+/// The original's own order is the card, then the arctic scene, then hand over to the game. The
+/// port reproduces the machine's **states** (`src/intro.rs`) and paces them on the original's frame
+/// period (`game::FRAME_TICKS`, 9.2298 frames a second; `--fps` changes it), with the card's own
+/// 15 s hold in front — which is why the whole thing is skippable.
+///
+/// Return and Space arrive as `return` (`window::key_name`), Escape as `escape`, and a mouse button
+/// as `frame.click`; all three skip. A closed window stops the process with status 0.
+#[cfg(feature = "window")]
+fn play_intro(win: &mut window::Window, mut engine: intro::Intro,
+              frame_ticks: u32) -> Result<IntroFlow, String> {
+    let period = intro_dispatch_period(frame_ticks);
+    let hz = game::TICK_HZ as f64 / frame_ticks.max(1) as f64;
+    println!(
+        "antics: intro — the MAXX card holds {} s (the original's own wait), then {} screens of \
+         the arctic scene at {:.2} a second. Return/Space/Esc or a click skips it.",
+        INTRO_CARD_HOLD_TICKS / game::TICK_HZ as u64,
+        INTRO_FRAMES,
+        hz
+    );
+
+    // ---- the card: `entry` + `CS:0x0850` (MAXX.PIC), palette 0 -------------------------------
+    engine.seek(0);
+    win.present_with(&Screen { idx: engine.indices() }, &PALETTE_0)?;
+    let mut ticks: u64 = 0;
+    while ticks < INTRO_CARD_HOLD_TICKS {
+        let frame = win.pump();
+        if frame.quit {
+            return Ok(IntroFlow::Quit);
+        }
+        if frame.click || frame.is_pressed("return") || frame.is_pressed("escape") {
+            println!("antics: intro skipped");
+            return Ok(IntroFlow::Skipped);
+        }
+        ticks += 1;
+        win.pace();
+    }
+
+    // ---- the arctic scene: `boot_scene` (state 1), then one dispatch at a time ---------------
+    engine.seek(1);
+    win.present_with(&Screen { idx: engine.indices() }, &PALETTE_1)?;
+    let states = intro::LAST_STATE + 1;
+    let mut shown = 1usize;      // state 1 is on the screen
+    let mut acc: u64 = 0;        // thousandths of a tick since the last dispatch
+    while shown < states {
+        let frame = win.pump();
+        if frame.quit {
+            return Ok(IntroFlow::Quit);
+        }
+        if frame.click || frame.is_pressed("return") || frame.is_pressed("escape") {
+            println!("antics: intro skipped");
+            return Ok(IntroFlow::Skipped);
+        }
+        acc += 1000;
+        let mut drew = false;
+        while acc >= period && shown < states {
+            acc -= period;
+            if !engine.step() {
+                // the quit word: `cmd 5` stage 10 counted its sub-counter to 20
+                shown = states;
+                break;
+            }
+            shown += 1;
+            drew = true;
+        }
+        if drew {
+            win.present_with(&Screen { idx: engine.indices() }, &PALETTE_1)?;
+        }
+        win.pace();
+    }
+    println!("antics: intro over — the setup selector");
+    Ok(IntroFlow::Finished)
+}
+
 /// **stage 22c — who gets the clock-seeded placement.**
 ///
 /// The original's `FUN_26c0_20cd` takes `DX` from the DOS clock (not the attract round's fixed
@@ -1045,6 +1172,130 @@ fn missing_or(path: &Path, e: &std::io::Error, dirs: &install::Dirs) -> String {
         format!("{}: {e}  (data: {})", path.display(), dirs.origin)
     } else {
         install::not_found_looking_in(&[&dirs.originals])
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stage 30: what a command line asks for — the game, or one of the headless modes
+// ---------------------------------------------------------------------------------------------
+//
+// **The v0.1.0 defect.** `main` defaulted `scene` to `"intro"` and the intro branch was headless
+// only (it rendered one frame for `--shot`/`--frame` and returned), while the window was wired into
+// the `setup` and `round` branches alone. So `antics` and `antics --play` — the two commands the
+// README, the release notes and `--install`'s own success message tell the player to run — exited
+// **0** without a window and without a word. The default is now the game: no arguments plays.
+
+/// A flag that only affects the window, or *where the nine files come from*: `Some(true)` when it
+/// takes a value, `Some(false)` when it stands alone.
+///
+/// A command line made of nothing but these still means "play" ([`default_play`]). Everything not
+/// listed here — `--shot`, `--frame`, `--scene`, `--script`, `--install`, `--where`, the whole
+/// recorded-dump harness — asks for a headless run and keeps the behaviour it had before stage 30,
+/// byte for byte.
+fn window_only_flag(arg: &str) -> Option<bool> {
+    match arg {
+        // how the window looks, and the one knob that paces it
+        "--scale" | "--fps" => Some(true),
+        // where the player's files come from
+        "--data-dir" | "--assets" => Some(true),
+        // asking for the window itself is a play command
+        "--play" => Some(false),
+        // the windowed round's speaker, the spy marker, the panel's idle timeout
+        "--sound" | "--no-sound" | "--no-panel-auto" | "--marker" | "--no-marker" => Some(false),
+        "--panel-auto" => Some(true),
+        _ => None,
+    }
+}
+
+/// Flags that ask for **headless output or a different entry point**: their presence means the
+/// command line is not a plain "play", even when `--play` is there too. `--island`, `--launch`,
+/// `--players`, `--difficulty`, `--cursor`, `--seed`, `--go` and the round's own switches are *not*
+/// on this list: they only choose options for a windowed run.
+fn headless_output_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--scene"
+            | "--shot"
+            | "--state"
+            | "--frame"
+            | "--layout"
+            | "--dump-objects"
+            | "--script"
+            | "--tick-trace"
+            | "--trace"
+            | "--keys"
+            | "--upto"
+            | "--demo"
+            | "--demo-frames"
+            | "--demo-out"
+            | "--demo-ds"
+            | "--shot-every"
+            | "--state-every"
+            | "--strip-out"
+            | "--levels-out"
+            | "--cpu-frames"
+            | "--cpu-probe"
+            | "--cpu-corpus"
+            | "--ds"
+            | "--from-ds"
+            | "--check"
+            | "--check-engine"
+            | "--install"
+            | "--where"
+    )
+}
+
+/// **Does this command line mean "play"?** Yes when it is empty, or consists only of
+/// [`window_only_flag`]s and their values — i.e. no flag asks for headless output and none picks a
+/// scene.
+fn default_play(args: &[String]) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        match window_only_flag(&args[i]) {
+            Some(true) => {
+                // the flag and its value; a flag with no value is a parse error, not a play command
+                if i + 1 >= args.len() {
+                    return false;
+                }
+                i += 2;
+            }
+            Some(false) => i += 1,
+            None => return false,
+        }
+    }
+    true
+}
+
+/// The first argument that says "headless" — the one to name when `--play` cannot be honoured.
+fn first_headless_flag(args: &[String]) -> Option<&str> {
+    args.iter().map(String::as_str).find(|a| headless_output_flag(a))
+}
+
+/// **Does this run open on the intro?** Only a plain "play" does: `--play` or no arguments, the
+/// intro as the scene, and nothing on the command line asking for headless output or another
+/// scene. `--scene setup --play` and `--scene round --play` never reach it.
+fn plays_intro(play: bool, scene: &str, args: &[String]) -> bool {
+    play && scene == "intro" && first_headless_flag(args).is_none()
+}
+
+/// **Open the SDL2 window, or say plainly why not.**
+///
+/// A released binary has no other way in, so a failed window is never a silent success: the cause
+/// SDL gives (no video driver, no `DISPLAY`, a missing backend) is printed with the two things that
+/// fix it, and the exit status is 7.
+#[cfg(feature = "window")]
+fn open_window(scale: u32) -> Result<window::Window, ExitCode> {
+    match window::Window::open("antics — Spy vs. Spy III: Arctic Antics", scale) {
+        Ok(w) => Ok(w),
+        Err(e) => {
+            eprintln!("antics: SDL could not open a window: {e}. Is a display available?");
+            eprintln!(
+                "antics: set DISPLAY (X11) or WAYLAND_DISPLAY (Wayland) and make sure the SDL2 \
+                 video backends are installed (Debian/Ubuntu: libsdl2-2.0-0). On a machine with no \
+                 display, the headless modes need no window: `antics --scene setup --shot FILE`."
+            );
+            Err(ExitCode::from(7))
+        }
     }
 }
 
@@ -1154,7 +1405,8 @@ fn main() -> ExitCode {
     let mut data_dir: Option<PathBuf> = None;
     let mut where_only = false;
 
-    let mut args = env::args().skip(1);
+    let argv: Vec<String> = env::args().skip(1).collect();
+    let mut args = argv.iter().cloned();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--shot" => shot = args.next().map(PathBuf::from),
@@ -1486,6 +1738,25 @@ fn main() -> ExitCode {
         }
     }
 
+    // **stage 30** — `antics` with no arguments (or only window/data options) plays. v0.1.0 fell
+    // through to the headless intro here and exited 0, which is exactly what the README, the release
+    // notes and `--install`'s success message tell the player *not* to expect.
+    if !play && default_play(&argv) {
+        play = true;
+    }
+    // The intro is the first screen of a plain "play". A command line that also asks for headless
+    // output gets the headless render it asked for — and is told that `--play` was not used, rather
+    // than having it silently ignored.
+    let intro_play = plays_intro(play, &scene, &argv);
+    if play && scene == "intro" && !intro_play {
+        if let Some(f) = first_headless_flag(&argv) {
+            eprintln!(
+                "antics: {f} asks for headless output, so --play is not used here. Run `antics` \
+                 with no arguments (or only --scale/--data-dir/--no-sound/--sound/--fps) to play."
+            );
+        }
+    }
+
     // **stage 23c** — the panel's auto-start policy, resolved once (see `panel_auto_enabled`):
     // on for `--play`, off on every headless path, `--panel-auto on|off` either way.
     let panel_auto = panel_auto_enabled(panel_auto_flag, play, go);
@@ -1769,21 +2040,18 @@ fn main() -> ExitCode {
                         return ExitCode::from(5);
                     }
                 };
-                let win = match window::Window::open("antics — Spy vs. Spy III: Arctic Antics", scale) {
+                let win = match open_window(scale) {
                     Ok(w) => w,
-                    Err(e) => {
-                        eprintln!("{e}");
-                        return ExitCode::from(7);
-                    }
+                    Err(code) => return code,
                 };
                 let mut sel = Selector::new();
                 sel.island = opts.island;
                 sel.launch = usize::from(opts.launch);
                 sel.players = opts.players - 1;
                 if opts.obj_clock {
-                    println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \\
-                              sampled once per round — a fresh layout on every GO! and every restart; \\
-                              `--seed N` pins it");
+                    println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
+                              sampled once per round — a fresh layout on every GO! and every \
+                              restart; `--seed N` pins it");
                 }
                 let start_in_round = true; // --scene round --play goes straight to the round
                 let dump = match SoundDump::new(sound_dump_path.as_ref()) {
@@ -1875,8 +2143,28 @@ fn main() -> ExitCode {
         };
     }
 
-    if scene == "setup" {
+    // The selector — and, for a plain "play", the screen the intro hands over to (`intro_play`
+    // enters this branch too: the window, the options and `play_app` all live here).
+    if scene == "setup" || intro_play {
         let dir = dirs.originals.clone();
+        // **stage 30** — a no-argument run opens on the intro, so its files are checked first, with
+        // the intro's own message when one is missing.
+        #[cfg(feature = "window")]
+        let intro_engine = if intro_play {
+            match intro::Intro::load(&dir) {
+                Ok(i) => Some(i),
+                Err(e) => {
+                    if dir.join("TITLE.DAT").is_file() {
+                        eprintln!("cannot run the intro engine: {e}");
+                    } else {
+                        eprintln!("{}", install::not_found_looking_in(&[&dir]));
+                    }
+                    return ExitCode::from(3);
+                }
+            }
+        } else {
+            None
+        };
         // the frame is drawn from `spy.exe` + `TRAP.PIC` by a port of the original's own draw list
         // (`src/selector_draw.rs`); the port reads no art of its own (stage 29)
         let setup = match load_setup(&dir) {
@@ -1911,13 +2199,23 @@ fn main() -> ExitCode {
                     return ExitCode::from(3);
                 }
             };
-            let win = match window::Window::open("antics — Spy vs. Spy III: Arctic Antics", scale) {
+            let mut win = match open_window(scale) {
                 Ok(w) => w,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::from(7);
-                }
+                Err(code) => return code,
             };
+            // **stage 30** — the original's own order: the `spytitl.exe` intro first, then this
+            // selector. Return/Space/Escape or a click skips it; closing the window quits.
+            if let Some(engine) = intro_engine {
+                match play_intro(&mut win, engine,
+                                 frame_ticks_opt.unwrap_or(game::FRAME_TICKS)) {
+                    Ok(IntroFlow::Quit) => return ExitCode::SUCCESS,
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return ExitCode::from(7);
+                    }
+                }
+            }
             let opts = game::RoundOpts {
                 difficulty: sel.difficulty as u16,
                 cpu: [cpu1, cpu2],
@@ -1955,9 +2253,9 @@ fn main() -> ExitCode {
                 demo: None,
             };
             if opts.obj_clock {
-                println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \\
-                          sampled once per round — a fresh layout on every GO! and every restart; \\
-                          `--seed N` pins it");
+                println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
+                          sampled once per round — a fresh layout on every GO! and every \
+                          restart; `--seed N` pins it");
             }
             let start_in_round = go;
             let dump = match SoundDump::new(sound_dump_path.as_ref()) {
@@ -2677,5 +2975,134 @@ mod install_e2e_tests {
             let fb = gb.frame(false);
             assert!(fa.idx == fb.idx, "round frame {frame_no} differs");
         }
+    }
+}
+
+/// **Stage 30 — what the command line asks for.** Pure functions only, so every case here runs on a
+/// machine with no display (which is where the v0.1.0 defect showed up worst: `antics` and
+/// `antics --play` exited 0 without a window).
+#[cfg(test)]
+mod launch_tests {
+    use super::{default_play, first_headless_flag, intro_dispatch_period, plays_intro,
+                INTRO_CARD_HOLD_TICKS, INTRO_FRAMES};
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// **The owner's first case.** No arguments at all must play, and so must a command line that
+    /// only says how to open the window or where the data is.
+    #[test]
+    fn no_arguments_and_window_only_options_play() {
+        assert!(default_play(&args(&[])), "`antics` plays");
+        assert!(default_play(&args(&["--play"])), "`antics --play` plays");
+        assert!(default_play(&args(&["--scale", "4"])), "`antics --scale 4` plays");
+        assert!(default_play(&args(&["--no-sound"])), "sound is a window option");
+        assert!(default_play(&args(&["--sound"])), "... in both directions");
+        assert!(default_play(&args(&["--data-dir", "/tmp/svs3"])), "so is --data-dir");
+        assert!(default_play(&args(&["--assets", "/tmp/svs3"])), "and its --assets spelling");
+        assert!(default_play(&args(&["--fps", "10"])), "`--fps` only changes the pacing");
+        assert!(default_play(&args(&["--panel-auto", "off"])), "--panel-auto on|off");
+        assert!(default_play(&args(&["--marker"])), "the spy marker is a window option");
+        assert!(default_play(&args(&["--scale", "2", "--no-sound", "--data-dir", "/d"])),
+                "any combination of window/data options still plays");
+        // a window option with no value is a parse error (exit 2), not a play command
+        assert!(!default_play(&args(&["--scale"])), "--scale needs a value");
+        assert!(!default_play(&args(&["--data-dir"])), "--data-dir needs a value");
+    }
+
+    /// **Every headless path keeps its own meaning.** A flag that asks for output, or picks a
+    /// scene, or is one of the release/verification entry points, is never turned into a play.
+    #[test]
+    fn headless_flags_are_not_play() {
+        for a in [
+            vec!["--shot", "f.bmp"],
+            vec!["--state", "f.json"],
+            vec!["--frame", "350"],
+            vec!["--scene", "setup"],
+            vec!["--scene", "round"],
+            vec!["--scene", "intro"],
+            vec!["--script", "s.script"],
+            vec!["--tick-trace", "t.txt"],
+            vec!["--trace", "t.txt"],
+            vec!["--keys", "down,return"],
+            vec!["--layout"],
+            vec!["--dump-objects"],
+            vec!["--demo"],
+            vec!["--demo-frames", "10"],
+            vec!["--cpu-frames", "5"],
+            vec!["--ds", "ds.bin"],
+            vec!["--check"],
+            vec!["--install", "/tmp/svs3"],
+            vec!["--where"],
+            // ... and mixed with a window option, the headless flag wins
+            vec!["--scale", "4", "--shot", "f.bmp"],
+        ] {
+            assert!(!default_play(&args(&a)), "{a:?} is a headless command line");
+        }
+    }
+
+    /// `--install` and `--where` are unchanged: they still run first and then exit, and their names
+    /// are what the "why not play" line reports.
+    #[test]
+    fn install_and_where_keep_their_entry_points() {
+        assert_eq!(first_headless_flag(&args(&["--install", "/tmp/sv"])), Some("--install"));
+        assert_eq!(first_headless_flag(&args(&["--where"])), Some("--where"));
+        assert_eq!(first_headless_flag(&args(&["--scale", "2", "--where"])), Some("--where"));
+        assert_eq!(first_headless_flag(&args(&["--play"])), None);
+        assert_eq!(first_headless_flag(&args(&[])), None);
+        assert_eq!(first_headless_flag(&args(&["--frame", "0"])), Some("--frame"));
+    }
+
+    /// **When the run opens on the intro.** Only a plain play does; an explicit scene does not, and
+    /// an explicit `--play` next to a headless flag does not either (the caller says so instead of
+    /// silently ignoring it).
+    #[test]
+    fn only_a_plain_play_opens_on_the_intro() {
+        assert!(plays_intro(true, "intro", &args(&[])), "`antics`");
+        assert!(plays_intro(true, "intro", &args(&["--play", "--scale", "2"])), "`--play --scale 2`");
+        assert!(plays_intro(true, "intro", &args(&["--no-sound", "--data-dir", "/d"])));
+        // an explicit scene never starts on the intro, whatever --play says
+        assert!(!plays_intro(true, "setup", &args(&["--scene", "setup", "--play"])));
+        assert!(!plays_intro(true, "round", &args(&["--scene", "round", "--play"])));
+        // `--play --frame 350` and `--scene intro --play` keep their headless behaviour
+        assert!(!plays_intro(true, "intro", &args(&["--play", "--frame", "350"])));
+        assert!(!plays_intro(true, "intro", &args(&["--scene", "intro", "--play"])));
+        // and no play flag at all is the headless intro, exactly as before stage 30
+        assert!(!plays_intro(false, "intro", &args(&[])));
+        assert!(!plays_intro(false, "intro", &args(&["--frame", "0", "--shot", "f.bmp"])));
+    }
+
+    /// **The intro's pacing is the recording's, at the original's frame rate.**
+    ///
+    /// `recon/timeline/meta.json` holds 654 screens (index 0 the MAXX card) and the machine has
+    /// 1,842 states, so one dispatch is `26 * 654 / 1842 = 9.23` ticks of the 240 Hz timer: the
+    /// scene runs 70.8 s and the card's own 15 s wait comes first (`STAGE27A_SPEC.md` §5.1, §6).
+    #[test]
+    fn the_intro_is_the_recorded_654_frames_at_the_originals_rate() {
+        assert_eq!(INTRO_FRAMES, 654, "meta.json's 654 captures, 0..653");
+        assert_eq!(INTRO_CARD_HOLD_TICKS, 15 * crate::game::TICK_HZ as u64);
+        let secs = INTRO_CARD_HOLD_TICKS as f64 / crate::game::TICK_HZ as f64;
+        assert!((secs - 15.0).abs() < 1e-9, "the card holds {secs} s, not 15");
+
+        let states = crate::intro::LAST_STATE + 1;
+        let period = intro_dispatch_period(crate::game::FRAME_TICKS);
+        assert_eq!(period, 9231, "26 * 654 * 1000 / 1842 = 9231 thousandths of a tick");
+        let body_ticks = period * states as u64 / 1000;
+        let body_s = body_ticks as f64 / crate::game::TICK_HZ as f64;
+        // 654 frames of 26 ticks is 70.85 s, which is what the recording's screen count costs
+        let want_s = 654.0 * crate::game::FRAME_TICKS as f64 / crate::game::TICK_HZ as f64;
+        assert!((body_s - want_s).abs() < 0.1, "{body_s} s vs {want_s} s");
+        assert!((body_s - 70.85).abs() < 0.1, "the arctic scene runs {body_s} s");
+        // the whole thing, card included, stays under 90 s: a change that made it creep into
+        // minutes would make an unskippable title sequence
+        let total = secs + body_s;
+        assert!(total < 90.0, "the intro is {total} s");
+
+        // `--fps N` scales the dispatch period with the frame period, and a 0 is clamped to 1 tick
+        for (ft, want) in [(26u32, 9231u64), (10, 3550), (6, 2130)] {
+            assert_eq!(intro_dispatch_period(ft), want, "--fps -> {ft} ticks a frame");
+        }
+        assert_eq!(intro_dispatch_period(0), intro_dispatch_period(1), "0 ticks is a parse error");
     }
 }

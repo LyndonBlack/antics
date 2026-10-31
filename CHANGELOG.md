@@ -4,6 +4,19 @@ All notable changes to `antics` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-10-31
+
+### Fixed
+- Running `antics` with no arguments, or `--play`, now opens the window and plays the intro, selector
+  and rounds (0.1.0 silently exited); the Linux release now includes X11/Wayland/audio backends.
+- A window that cannot be opened is reported with its cause and a fix hint, and exits non-zero,
+  instead of the process ending quietly with status 0 (this includes the case where SDL falls back to
+  its `dummy` video driver because no display driver is available).
+- `--play` alongside a flag that asks for headless output (for example `--play --shot f.bmp` or
+  `--scene intro --play`) is reported rather than silently ignored.
+- The intro is rendered in the window in its own CGA palette: the MAXX OUT! card is palette 0, not
+  palette 1.
+
 ## [0.1.0] - 2026-10-30
 
 First release.

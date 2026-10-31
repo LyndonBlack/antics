@@ -37,7 +37,7 @@ ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a ch
 
 | flag | meaning |
 |---|---|
-| `--frame N` | which state of the intro to render (0-653; clamped) |
+| `--frame N` | which state of the intro to render headless (0 = the MAXX card, 1…1841 the script machine's dispatches; clamped) |
 | `--shot FILE` | write the frame as a 24-bit BMP at native 320x200 |
 | `--state FILE` | write `{frame, scene, slots, strip, palette}` as JSON |
 | `--data-dir DIR` | the directory holding the player's nine files (default: the per-user data directory `--install` wrote — see [YOU-NEED-THE-ORIGINAL.md](YOU-NEED-THE-ORIGINAL.md)); `--assets DIR` is the same thing under the harness's older name |

@@ -120,6 +120,12 @@ If the data is missing, `antics` says so instead of starting:
 Original game data not found. Run: antics --install <folder with your copy of Spy vs Spy III: Arctic Antics>. See docs/YOU-NEED-THE-ORIGINAL.md
 ```
 
+Then `antics` with no arguments plays, in the original's order: the intro first (the MAXX OUT! card
+for its own 15 seconds, then the animated arctic title scene — `Return`, `Space`, `Esc` or a mouse
+click skips the whole intro), then the setup selector, then a round, and every finished or abandoned
+round returns to the selector. Closing the window quits at any point. `antics --scene setup --play`
+skips the intro if you would rather go straight to the options screen.
+
 ## Where the files land
 
 `--install` **copies** your nine files into a per-user data directory, never next to the binary and
@@ -155,9 +161,16 @@ executables, because the code it drives *is* `spy.exe`.
 **A file is missing from the data directory.** Run `--install` again pointing at the folder that has
 your copy. If one of the nine files is missing from that folder, your copy is incomplete.
 
-**No sound.** This build emits no audio yet: the original's sound cues are located in the code and
-documented, but they are not played. A machine with no audio device is therefore not a problem, and
-there is nothing to configure. (The game is playable and silent.)
+**No sound.** `antics` plays the original's sound cues through its own tone generator (a square wave
+like the PC speaker's), and `--no-sound` mutes them. A machine with no audio device is not a problem:
+the port says "no audio device — running silent" and plays on.
+
+**The window does not appear.** `antics` now says why instead of exiting quietly. On Linux the usual
+cause is that there is no display to open a window on: `SDL could not open a window: ... Is a
+display available?`. Set `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland), and check the SDL2 video
+backends are installed (`libsdl2-2.0-0`); over SSH, `ssh -X` forwards X11. On a machine with no
+display at all, the headless modes need no window — `antics --scene setup --shot setup.bmp` renders
+the selector to a file.
 
 **macOS: "antics cannot be opened because the developer cannot be verified."** The binary is not
 signed or notarised (there is no Apple developer account behind this project). Either right-click the

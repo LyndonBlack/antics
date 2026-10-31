@@ -81,7 +81,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config ninja-build libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxfixes-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libasound2-dev libpulse-dev libudev-dev libdrm-dev libgbm-dev libegl1-mesa-dev libgl1-mesa-dev
 
       - name: Build deps (macOS)
         if: runner.os == 'macOS'
@@ -110,6 +110,17 @@ jobs:
       # case on CI: no original game data is ever fetched or stored here.
       - name: Test
         run: cargo test --release --locked --features window,bundled,static-link --target ${{ matrix.triple }}
+
+      - name: Guard - the binary must contain a real video backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINPATH="target/${{ matrix.triple }}/release/${BIN}${{ matrix.ext }}"
+          case "${{ matrix.name }}" in
+            linux-*)   strings "$BINPATH" | grep -qx 'x11' && strings "$BINPATH" | grep -qx 'wayland' || { echo "SDL was built without X11/Wayland"; exit 1; } ;;
+            macos-*)   strings "$BINPATH" | grep -q 'Cocoa' || { echo "SDL was built without Cocoa"; exit 1; } ;;
+            windows-*) echo "windows: win32 driver is always built" ;;
+          esac
 
       - name: Package
         shell: bash
