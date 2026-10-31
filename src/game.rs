@@ -7391,10 +7391,10 @@ mod tests {
             return;
         }
         let mut g = plain();
-        let mut a = g.cell_of(0).unwrap();
+        let a = g.cell_of(0).unwrap();
         g.ds[a] = 0;
         let ahead = if g.spies[0].mirror { a - 1 } else { a + 1 };
-        let mut a = ahead;
+        let a = ahead;
         g.ds[a] = 0x08;
         fire_frames(&mut g, FIRE, 1);
         assert_eq!(g.spies[0].carried, 8);
@@ -13523,7 +13523,7 @@ fn every_recorded_sink_word_lies_on_the_models_ramp_for_its_terrain() {
                     _ => sink == 0,
                 };
                 if !ok {
-                    bad.push((ses.clone(), path.file_name().unwrap().to_string_lossy().to_string(),
+                    bad.push((ses, path.file_name().unwrap().to_string_lossy().to_string(),
                               i, c, sink));
                 }
             }
@@ -15473,7 +15473,7 @@ fn every_recorded_sink_word_lies_on_the_models_ramp_for_its_terrain() {
         }
         use std::sync::atomic::Ordering;
         let before = round::CLOCK_READS.load(Ordering::Relaxed);
-        let frozen = game(RoundOpts { island: 0, players: 2, ..RoundOpts::default() });
+        let _frozen = game(RoundOpts { island: 0, players: 2, ..RoundOpts::default() });
         let after_frozen = round::CLOCK_READS.load(Ordering::Relaxed);
         assert_eq!(after_frozen, before, "a pinned-DX round must not read the clock at all");
 
@@ -16909,6 +16909,39 @@ fn every_recorded_sink_word_lies_on_the_models_ramp_for_its_terrain() {
             (g.clock_secs() as i64 - rec_clock).abs() <= 2,
             "DS:0x324D at frame 383: port {} vs the recording's {rec_clock}",
             g.clock_secs()
+        );
+    }
+
+    /// **v0.1.4 — an all-zero `spy.exe` cannot hang `--scene round`.**
+    ///
+    /// The security review's repro: the right number of bytes, every one zero, and `Game::new`
+    /// never returned. `place_igloo_fires` was re-rolling a level table that holds no bare
+    /// interior for ever. It is bounded now, so this either starts a (nonsense) round or reports a
+    /// clean `Err`; the wall-clock assertion is the defect itself, since a regression hangs here
+    /// rather than failing an equality.
+    #[test]
+    fn an_all_zero_spy_exe_starts_or_errors_without_hanging() {
+        if crate::orig::absent() {
+            crate::orig::skip("the original game data");
+            return;
+        }
+        let exe = std::fs::read(crate::orig::require("spy-vs-spy-iii/original/256/spy.exe"))
+            .expect("spy.exe");
+        let zero = vec![0u8; exe.len()];
+        let t = std::time::Instant::now();
+        match Game::new(zero, &RoundOpts::default()) {
+            Ok(mut g) => {
+                for _ in 0..3 {
+                    g.tick(Input::default());
+                }
+                let _ = g.frame(false);
+            }
+            Err(e) => assert!(!e.is_empty(), "an error says what is wrong"),
+        }
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(10),
+            "a zeroed spy.exe took {:?}: the round start is not bounded",
+            t.elapsed()
         );
     }
 

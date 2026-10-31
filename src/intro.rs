@@ -142,6 +142,33 @@ struct Files {
     texts: [Vec<u8>; 3],
 }
 
+/// The 15 word slots of the frame pointer table (`DS:0x9BA6`).
+fn frame_table() -> [usize; 15] {
+    std::array::from_fn(|i| A_FRAMEPTR + 2 * i)
+}
+
+/// The four word slots of the mask pointer table (`DS:0xB84`).
+fn mask_table() -> [usize; 4] {
+    std::array::from_fn(|i| A_MASKPTR + 2 * i)
+}
+
+/// **Is `p` a record this engine can draw?** `p` is a word out of the player's executable, so it
+/// can be anything; a record is a 4-byte header (`rows`, `bytes per row`) followed by
+/// `rows * bytes-per-row` of pixels. `NO_RECORD` is always acceptable. A zero-row record has no
+/// payload, so its width is not constrained -- mask table entry 3 really is an unaligned header of
+/// `(0, 0xB000)` whose payload is never read.
+fn rec_ok(ds: &[u8], p: usize) -> bool {
+    if p == NO_RECORD {
+        return true;
+    }
+    let Some(h) = ds.get(p..p.saturating_add(4)) else {
+        return false;
+    };
+    let rows = u16::from_le_bytes([h[0], h[1]]) as usize;
+    let wb = u16::from_le_bytes([h[2], h[3]]) as usize;
+    rows == 0 || p.saturating_add(4).saturating_add(rows * wb) <= ds.len()
+}
+
 /// One frame of the machine: what the intro shows, with no reference to how it got there. The
 /// port's CLI only needs `count`, but a test compares the whole descriptor, so the struct is kept
 /// whole rather than narrowed to what today's caller happens to read.
@@ -248,6 +275,53 @@ impl Intro {
                 ));
             }
         }
+        // **v0.1.4** — every pointer the machine will follow is checked here, once, before the
+        // engine exists. Until 0.1.4 the frame-, mask- and slot-pointer tables were trusted, so a
+        // single damaged byte in `spytitl.exe` made `draw`/`build` index the data segment out of
+        // bounds (a panic, not a misdraw). A pointer that is not a record this engine can draw is
+        // refused with the file's name; the defensive accessors below then make the same mistake
+        // harmless if a future edit slips past this check.
+        for (i, &p) in frame_table().iter().enumerate() {
+            let p = u16::from_le_bytes([ds0[p], ds0[p + 1]]) as usize;
+            if !rec_ok(&ds0, p) {
+                return Err(format!(
+                    "spytitl.exe: frame table entry {i} points at {p} (the data segment is {} B), \
+                     so this is not a build this engine can draw",
+                    ds0.len()
+                ));
+            }
+        }
+        for (i, &p) in mask_table().iter().enumerate() {
+            let p = u16::from_le_bytes([ds0[p], ds0[p + 1]]) as usize;
+            if !rec_ok(&ds0, p) {
+                return Err(format!(
+                    "spytitl.exe: mask table entry {i} points at {p} (the data segment is {} B), \
+                     so this is not a build this engine can draw",
+                    ds0.len()
+                ));
+            }
+        }
+        for slot in 0..10 {
+            let p = u16::from_le_bytes([ds0[A_SLOTPTR + 2 * slot], ds0[A_SLOTPTR + 2 * slot + 1]])
+                as usize;
+            if p + 12 > ds0.len() {
+                return Err(format!(
+                    "spytitl.exe: slot pointer {slot} is {p}, outside the {}-byte data segment",
+                    ds0.len()
+                ));
+            }
+        }
+        for (i, script) in A_SCRIPT.iter().enumerate() {
+            // The script machine walks bytes until a `00`; a script that has no terminator before
+            // the end of the segment would run off it.
+            if *script >= ds0.len() || !ds0[*script..].contains(&0) {
+                return Err(format!(
+                    "spytitl.exe: script {i} at {script:#x} has no `00` terminator before the end \
+                     of the {}-byte data segment",
+                    ds0.len()
+                ));
+            }
+        }
         let ds = ds0.clone(); // the loader loads the image before `entry` runs: DS is the file
         Ok(Intro {
             ds0,
@@ -270,9 +344,18 @@ impl Intro {
     }
 
     // ---- DS accessors -------------------------------------------------------------------------
+    //
+    // **v0.1.4** — every one of these is checked. The data segment is 40,208 bytes, but the words
+    // it holds are addresses, and a damaged `spytitl.exe` can hold a word no DOS program could
+    // ever have produced. Out-of-range now reads as 0 and writes nowhere: the machine keeps
+    // running (or draws nothing at that spot) instead of panicking. `from_files` refuses such a
+    // file up front; these guards are the second line.
 
     fn w(&self, a: usize) -> u16 {
-        u16::from_le_bytes([self.ds[a], self.ds[a + 1]])
+        match (self.ds.get(a), self.ds.get(a.wrapping_add(1))) {
+            (Some(lo), Some(hi)) => u16::from_le_bytes([*lo, *hi]),
+            _ => 0,
+        }
     }
 
     /// The same word read as a signed 16-bit value, which is what the arithmetic uses.
@@ -282,39 +365,51 @@ impl Intro {
 
     fn putw(&mut self, a: usize, v: u16) {
         let b = v.to_le_bytes();
-        self.ds[a] = b[0];
-        self.ds[a + 1] = b[1];
+        if a.checked_add(1).is_some_and(|h| h < self.ds.len()) {
+            self.ds[a] = b[0];
+            self.ds[a + 1] = b[1];
+        }
     }
 
-    fn slot_ptr(&self, slot: usize) -> usize {
-        self.w(A_SLOTPTR + slot * 2) as usize
+    /// The address of slot `slot`'s 12-byte descriptor, or `None` when the table entry is not one.
+    fn slot_ptr(&self, slot: usize) -> Option<usize> {
+        if slot >= 10 {
+            return None;
+        }
+        let p = self.w(A_SLOTPTR + slot * 2) as usize;
+        (p.checked_add(12)? <= self.ds.len()).then_some(p)
     }
 
-    fn frame_ptr(&self, fid: usize) -> usize {
+    /// The address of frame record `fid`, or `None` when the table has no drawable record there.
+    fn frame_ptr(&self, fid: usize) -> Option<usize> {
         if fid >= 15 {
-            return NO_RECORD;
+            return None;
         }
-        self.w(A_FRAMEPTR + fid * 2) as usize
+        let p = self.w(A_FRAMEPTR + fid * 2) as usize;
+        rec_ok(&self.ds, p).then_some(p)
     }
 
-    fn mask_ptr(&self, mid: usize) -> usize {
+    /// The address of mask record `mid`, or `None` (id `0xFF` is "no mask" and never reaches here).
+    fn mask_ptr(&self, mid: usize) -> Option<usize> {
         if mid > 3 {
-            return NO_RECORD;
+            return None;
         }
-        self.w(A_MASKPTR + mid * 2) as usize
+        let p = self.w(A_MASKPTR + mid * 2) as usize;
+        rec_ok(&self.ds, p).then_some(p)
     }
 
     /// A record's `(rows, bytes per row)` -- stored rows first, then the width in bytes.
-    fn rec_dims(&self, rec: usize) -> (i32, i32) {
-        if rec == NO_RECORD {
-            return (0, 0);
+    fn rec_dims(&self, rec: Option<usize>) -> (i32, i32) {
+        match rec {
+            None => (0, 0),
+            Some(p) => (self.w(p) as i32, self.w(p + 2) as i32),
         }
-        (self.w(rec) as i32, self.w(rec + 2) as i32)
     }
 
     // ---- CS:0x155A -- cut a rect of the screen into a record ---------------------------------
 
-    fn cut(&mut self, dest: usize) -> u16 {
+    fn cut(&mut self, dest: Option<usize>) -> u16 {
+        let Some(dest) = dest else { return 0 };
         let x1b = floor4(self.sw(A_RECT + 4));
         let x2b = (self.w(A_RECT + 6) >> 2) as i32;
         let wb = x2b - x1b + 1;
@@ -323,20 +418,23 @@ impl Intro {
         let rows = y2 - y1 + 1;
         self.putw(dest + 2, wb as u16);
         self.putw(dest, rows as u16);
-        let mut p = dest + 4;
+        let mut p = dest as i64 + 4;
         for r in 0..rows.max(0) {
             let y = y1 + r;
             if !(0..H as i32).contains(&y) || wb <= 0 {
-                p += wb.max(0) as usize;
+                p += wb.max(0) as i64;
                 continue;
             }
-            let src = row_off(y as usize) + x1b as usize;
+            let src = row_off(y as usize) as i64 + x1b as i64;
             let n = wb as usize;
-            if src + n <= VIDEO_BYTES {
-                let (a, b) = (p, src);
+            // The destination is the player's own data segment: a rect larger than the space left
+            // after `dest` stops the copy rather than running off it (v0.1.4).
+            if src >= 0 && src + n as i64 <= VIDEO_BYTES as i64 && p + n as i64 <= self.ds.len() as i64
+            {
+                let (a, b) = (p as usize, src as usize);
                 self.ds[a..a + n].copy_from_slice(&self.vram[b..b + n]);
             }
-            p += n;
+            p += n as i64;
         }
         (rows.max(0) * wb.max(0)) as u16
     }
@@ -383,11 +481,9 @@ impl Intro {
     /// The two masked pieces are not stencilled: the mask is a 2 bpp alpha plane (`0` takes the
     /// background, which is `DS:0xC42` -- `TITLE.DAT`, never the screen), so a byte of mask blends
     /// four pixels independently.
-    fn blit(&mut self, rec: usize, mask: usize) -> bool {
-        if rec == NO_RECORD {
-            return false;
-        }
-        let (rows0, wb0) = self.rec_dims(rec);
+    fn blit(&mut self, rec: Option<usize>, mask: Option<usize>) -> bool {
+        let Some(rec) = rec else { return false };
+        let (rows0, wb0) = self.rec_dims(Some(rec));
         let y1 = self.w(A_RECT) as i32;
         self.putw(A_RECT + 2, (y1 + rows0 - 1) as u16);
         self.putw(A_WB, wb0 as u16);
@@ -410,36 +506,37 @@ impl Intro {
         if rows <= 0 || wb <= 0 {
             return true;
         }
-        let src0 = rec as i32 + 4 + dy1 * wb0;
-        let msk0 = if mask == NO_RECORD {
-            -1
-        } else {
-            mask as i32 + 4 + dy1 * wb0
+        // Everything below is i64 on purpose (v0.1.4): `dy1 * wb0` alone can exceed i32 when the
+        // clip delta and the record width both come out of a damaged executable.
+        let src0 = rec as i64 + 4 + dy1 as i64 * wb0 as i64;
+        let msk0 = match mask {
+            None => -1i64,
+            Some(m) => m as i64 + 4 + dy1 as i64 * wb0 as i64,
         };
+        let n = wb as usize;
         for r in 0..rows {
             let y = y0 + r;
             if !(0..H as i32).contains(&y) {
                 continue;
             }
-            let dst = row_off(y as usize) as i32 + xb;
-            if dst < 0 || dst + wb > VIDEO_BYTES as i32 {
+            let dst = row_off(y as usize) as i64 + xb as i64;
+            if dst < 0 || dst + wb as i64 > VIDEO_BYTES as i64 {
                 continue;
             }
-            let s = src0 + r * wb0;
-            let m = msk0 + r * wb0;
-            if (s + wb) as usize > self.ds.len() {
+            let s = src0 + r as i64 * wb0 as i64;
+            let m = msk0 + r as i64 * wb0 as i64;
+            if s < 0 || s + wb as i64 > self.ds.len() as i64 {
                 continue;
             }
-            if msk0 < 0 || (m + wb) as usize > self.ds.len() {
+            if msk0 < 0 || m < 0 || m + wb as i64 > self.ds.len() as i64 {
                 let (a, b) = (dst as usize, s as usize);
-                let n = wb as usize;
                 self.vram[a..a + n].copy_from_slice(&self.ds[b..b + n]);
             } else {
-                let bg = A_SCENE as i32 + y * 80 + xb;
-                if bg < 0 || bg + wb > self.ds.len() as i32 {
+                let bg = A_SCENE as i64 + y as i64 * 80 + xb as i64;
+                if bg < 0 || bg + wb as i64 > self.ds.len() as i64 {
                     continue;
                 }
-                for k in 0..wb as usize {
+                for k in 0..n {
                     let a = self.ds[s as usize + k];
                     let b = self.ds[m as usize + k];
                     let g = self.ds[bg as usize + k];
@@ -453,8 +550,7 @@ impl Intro {
     // ---- CS:0x165B -- build a descriptor (no flag handling) ----------------------------------
 
     fn build(&mut self) {
-        let slot = self.w(A_CUR) as usize;
-        let si = self.slot_ptr(slot);
+        let Some(si) = self.slot_ptr(self.w(A_CUR) as usize) else { return };
         let rec = self.frame_ptr(self.w(A_FRAME) as usize);
         let count = if self.w(A_FLAGS) & 1 != 0 {
             self.cut(rec)
@@ -499,14 +595,13 @@ impl Intro {
     // ---- CS:0x16B2 -- draw one descriptor ----------------------------------------------------
 
     fn draw(&mut self) -> bool {
-        let slot = self.w(A_CUR) as usize;
-        let si = self.slot_ptr(slot);
+        let Some(si) = self.slot_ptr(self.w(A_CUR) as usize) else { return false };
         self.putw(A_FRAME, self.ds[si + 10] as u16);
         let rec = self.frame_ptr(self.w(A_FRAME) as usize);
         let mid = self.ds[si + 11];
         self.putw(A_MASKID, mid as u16);
         let mask = if mid == 0xFF {
-            NO_RECORD
+            None
         } else {
             self.mask_ptr(mid as usize)
         };
@@ -565,11 +660,11 @@ impl Intro {
         }
 
         if flags & 0x80 != 0 {
-            if rec != NO_RECORD {
-                self.rotate(rec + 4);
+            if let Some(r) = rec {
+                self.rotate(r + 4);
             }
-            if mask != NO_RECORD {
-                self.rotate(mask + 4);
+            if let Some(m) = mask {
+                self.rotate(m + 4);
             }
         }
         if flags & 0x40 != 0 {
@@ -689,11 +784,12 @@ impl Intro {
         self.putw(A_CUR, 6);
         let c = self.phase(A_PH1, 12);
         self.putw(A_FLAGS, if (0..=12).contains(&c) { 1 } else { 2 });
-        let si = self.slot_ptr(6);
-        let b = self.ds[A_TAB1 + (c + 13) as usize];
-        self.ds[si + 10] = b % 100;
-        if b >= 100 && self.ds[A_SOUND_ON] != 0 {
-            self.putw(A_SOUND, 2);
+        if let Some(si) = self.slot_ptr(6) {
+            let b = self.ds[A_TAB1 + (c + 13) as usize];
+            self.ds[si + 10] = b % 100;
+            if b >= 100 && self.ds[A_SOUND_ON] != 0 {
+                self.putw(A_SOUND, 2);
+            }
         }
         self.draw();
     }
@@ -720,11 +816,12 @@ impl Intro {
         self.putw(A_CUR, 7);
         let c = self.phase(A_PH3, 10);
         self.putw(A_FLAGS, if c >= 0 { 1 } else { 2 });
-        let si = self.slot_ptr(7);
-        let b = self.ds[A_TAB3 + (c + 11) as usize];
-        self.ds[si + 10] = b % 100;
-        if b >= 100 && self.ds[A_SOUND_ON] != 0 {
-            self.putw(A_SOUND, 2);
+        if let Some(si) = self.slot_ptr(7) {
+            let b = self.ds[A_TAB3 + (c + 11) as usize];
+            self.ds[si + 10] = b % 100;
+            if b >= 100 && self.ds[A_SOUND_ON] != 0 {
+                self.putw(A_SOUND, 2);
+            }
         }
         self.draw();
     }
@@ -862,6 +959,10 @@ impl Intro {
         }
         let si = self.slot_ptr(4);
         let sj = self.slot_ptr(8);
+        let (Some(si), Some(sj)) = (si, sj) else {
+            self.clip_reset();
+            return;
+        };
         self.putw(A_CUR, 8); // the lookup leaves the index at slot 8
         self.putw(A_CLIP, 0x00);
         self.putw(A_CLIP + 2, 0x9C);
@@ -1030,6 +1131,10 @@ impl Intro {
         }
         let si = self.slot_ptr(5);
         let sj = self.slot_ptr(9);
+        let (Some(si), Some(sj)) = (si, sj) else {
+            self.clip_reset();
+            return;
+        };
         self.putw(A_CUR, 9);
         self.putw(A_CLIP, 0x00);
         self.putw(A_CLIP + 2, 0x9E);
@@ -1128,7 +1233,10 @@ impl Intro {
         self.ds[A_SCENE..A_SCENE + SCENE_BYTES].copy_from_slice(&self.files.title);
         for (i, a) in A_TEXT.iter().enumerate() {
             let d = &self.files.texts[i];
-            self.ds[*a..*a + d.len()].copy_from_slice(d);
+            // A caption longer than the space the segment leaves is cut, not copied past the end
+            // (v0.1.4: an appended-to TEXT1.DAT used to be able to slice out of range).
+            let n = d.len().min(self.ds.len().saturating_sub(*a));
+            self.ds[*a..*a + n].copy_from_slice(&d[..n]);
         }
         self.ramp();
         self.putw(A_ROWS, 0x92);
@@ -1144,7 +1252,7 @@ impl Intro {
             self.putw(A_MASKID, 0xFF);
             self.putw(A_FLAGS, 1);
             let rec = self.frame_ptr(fid as usize);
-            self.putw(A_CUTBUF[slot], rec as u16);
+            self.putw(A_CUTBUF[slot], rec.unwrap_or(NO_RECORD) as u16);
             self.build();
         }
     }
@@ -1174,7 +1282,13 @@ impl Intro {
         // plus the hand-over is the most this can walk in one step; a script of zeroes stops here.
         for _ in 0..4 {
             let ptr = self.w(A_SCRIPTPTR + 2 * self.script.min(2)) as usize;
-            let c = self.ds[ptr + self.off];
+            // A script pointer and the walk offset both come from the player's executable; the
+            // loader refuses a script with no terminator, and this keeps a damaged one finite
+            // instead of reading past the segment (v0.1.4).
+            let Some(c) = ptr.checked_add(self.off).and_then(|a| self.ds.get(a).copied()) else {
+                self.quit = true;
+                return false;
+            };
             if c == 0 {
                 self.off = 0;
                 self.script = (self.w(A_SCRIPTN) as usize).min(2);
@@ -1245,7 +1359,7 @@ impl Intro {
     pub fn slots(&self) -> [SlotState; 10] {
         let mut out = [SlotState::default(); 10];
         for (s, o) in out.iter_mut().enumerate() {
-            let si = self.slot_ptr(s);
+            let Some(si) = self.slot_ptr(s) else { continue };
             *o = SlotState {
                 count: self.w(si),
                 y1: self.w(si + 2),
@@ -1676,8 +1790,7 @@ mod tests {
         // 2..=14 are static: the header is in the file and needs no machine state at all.
         for fid in 2..15usize {
             let (rows, wb) = dims[fid];
-            let p = i.frame_ptr(fid);
-            assert_ne!(p, NO_RECORD, "frame {fid} has a pointer");
+            let p = i.frame_ptr(fid).unwrap_or_else(|| panic!("frame {fid} has no pointer"));
             assert_eq!(
                 (i.w(p) as usize, i.w(p + 2) as usize),
                 (rows, wb),
@@ -1690,7 +1803,7 @@ mod tests {
         }
         // 0 and 1 are the runtime cut buffers: empty in the file, 28x14 after the entry cuts.
         for fid in 0..2usize {
-            let p = i.frame_ptr(fid);
+            let p = i.frame_ptr(fid).expect("a cut buffer");
             assert_eq!(p, A_CUTBUF[fid], "frame {fid} is cut into its own buffer");
             assert_eq!(
                 (i.w(p), i.w(p + 2)),
@@ -1701,7 +1814,7 @@ mod tests {
         i.boot_card();
         i.boot_scene();
         for (fid, xb0, slot) in [(0usize, 19usize, 0usize), (1, 56, 1)] {
-            let p = i.frame_ptr(fid);
+            let p = i.frame_ptr(fid).expect("a cut buffer");
             let (rows, wb) = (28usize, 14usize);
             assert_eq!(
                 (i.w(p) as usize, i.w(p + 2) as usize),
@@ -1718,13 +1831,13 @@ mod tests {
                 );
             }
             assert_eq!(
-                i.w(i.slot_ptr(slot)) as usize,
+                i.w(i.slot_ptr(slot).expect("slot descriptor")) as usize,
                 rows * wb,
                 "slot {slot}'s count is the cut's byte count"
             );
         }
         // record 2 is exactly TITLE.DAT rows 97..129, bytes 22..54 (the measured identity)
-        let p = i.frame_ptr(2);
+        let p = i.frame_ptr(2).expect("frame record 2");
         let (rows, wb) = (33usize, 33usize);
         for r in 0..rows {
             let rec = &i.ds[p + 4 + r * wb..p + 4 + (r + 1) * wb];
@@ -1733,8 +1846,7 @@ mod tests {
         }
         // the two masked pieces have a real 2 bpp alpha plane, not a stencil
         for (mid, fid) in [(0usize, 4usize), (1, 5)] {
-            let m = i.mask_ptr(mid);
-            assert_ne!(m, NO_RECORD, "mask {mid} has a pointer");
+            let m = i.mask_ptr(mid).unwrap_or_else(|| panic!("mask {mid} has no pointer"));
             assert_eq!(
                 (i.w(m) as usize, i.w(m + 2) as usize),
                 (dims[fid].0, dims[fid].1),
@@ -1835,6 +1947,126 @@ mod tests {
             }
         }
         assert_eq!(band, 0, "the caption-less band is the scene's top ({band} px differ)");
+    }
+
+    /// The four kinds of player file the intro engine reads, or `None` when the original is absent.
+    fn files() -> Option<(Vec<u8>, Vec<u8>, Vec<u8>, [Vec<u8>; 3])> {
+        if orig::absent() {
+            orig::skip("spytitl.exe and the intro's data files");
+            return None;
+        }
+        let dir = orig::repo().join(orig::ORIGINAL_DIR);
+        let read = |n: &str| fs::read(dir.join(n)).expect(n);
+        Some((
+            read("spytitl.exe"),
+            read("MAXX.PIC"),
+            read("TITLE.DAT"),
+            [read("TEXT1.DAT"), read("TEXT2.DAT"), read("TEXT3.DAT")],
+        ))
+    }
+
+    /// A deterministic "one percent of the bytes are random" mutation, the shape of the damage the
+    /// v0.1.4 fuzz tool applies (`recon/round/port_check/play/fuzz_data.py` raises 101).
+    fn damaged(bytes: &[u8], seed: u64) -> Vec<u8> {
+        let mut b = bytes.to_vec();
+        let mut s = seed | 1;
+        let len = b.len();
+        for _ in 0..len / 100 {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            let at = (s as usize) % len;
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            b[at] = (s >> 24) as u8;
+        }
+        b
+    }
+
+    fn load_damaged(exe: &[u8], maxx: &[u8], title: &[u8], texts: &[Vec<u8>; 3])
+        -> Result<Intro, String>
+    {
+        Intro::from_files(exe, maxx, title, [&texts[0], &texts[1], &texts[2]])
+    }
+
+    /// **v0.1.4 — the crash the security review found.** `spytitl.exe` with 1% of its bytes
+    /// randomised (seeds 7 and 12 of the fuzz tool) panicked in the descriptor tables before
+    /// 0.1.4: `index out of bounds: the len is 40208 but the index is 62020`. A damaged executable
+    /// must be refused by the loader, and if a future change lets one through, running it must
+    /// still be a defined (if ugly) picture rather than a panic.
+    #[test]
+    fn a_damaged_spytitl_never_panics_the_engine() {
+        let Some((exe, maxx, title, texts)) = files() else { return };
+        for seed in [7u64, 12] {
+            let bad = damaged(&exe, seed);
+            match load_damaged(&bad, &maxx, &title, &texts) {
+                Err(e) => assert!(e.contains("spytitl.exe"), "seed {seed}: {e} names the file"),
+                Ok(mut i) => {
+                    for f in [0usize, 1, 350, 552, 1000, 1500, LAST_STATE] {
+                        i.seek(f);
+                        let _ = i.indices();
+                    }
+                }
+            }
+        }
+    }
+
+    /// The three tables the machine follows are refused by name, not by a panic: the slot
+    /// descriptors, the frame records and a script that has lost its terminator.
+    #[test]
+    fn a_bad_pointer_table_is_refused_by_name() {
+        let Some((exe, maxx, title, texts)) = files() else { return };
+
+        // slot 7 -> 62020, exactly the word the fuzz found
+        let mut bad = exe.clone();
+        bad[EXE_DATA + A_SLOTPTR + 2 * 7..EXE_DATA + A_SLOTPTR + 2 * 7 + 2]
+            .copy_from_slice(&62020u16.to_le_bytes());
+        let e = load_damaged(&bad, &maxx, &title, &texts).err().expect("slot table");
+        assert!(e.contains("slot pointer 7"), "{e}");
+
+        // frame record 5 -> the 47898 the other seed produced
+        let mut bad = exe.clone();
+        bad[EXE_DATA + A_FRAMEPTR + 2 * 5..EXE_DATA + A_FRAMEPTR + 2 * 5 + 2]
+            .copy_from_slice(&47898u16.to_le_bytes());
+        let e = load_damaged(&bad, &maxx, &title, &texts).err().expect("frame table");
+        assert!(e.contains("frame table entry 5"), "{e}");
+
+        // a script with no `00` before the end of the segment
+        let mut bad = exe.clone();
+        for b in &mut bad[EXE_DATA + A_SCRIPT[0]..EXE_DATA + DS_LEN] {
+            if *b == 0 {
+                *b = 1;
+            }
+        }
+        let e = load_damaged(&bad, &maxx, &title, &texts).err().expect("unterminated script");
+        assert!(e.contains("script 0") && e.contains("terminator"), "{e}");
+    }
+
+    /// The same for the data files: a full-size but damaged TITLE.DAT / MAXX.PIC / TEXTn.DAT is
+    /// accepted (its bytes are just pixels) and every frame must render without a panic. This is
+    /// the path the checked draw primitives protect; the loader has nothing to validate.
+    #[test]
+    fn damaged_scene_files_render_without_panic() {
+        let Some((exe, maxx, title, texts)) = files() else { return };
+        for which in 0..5 {
+            let (mx, ti, mut tx) = (maxx.clone(), title.clone(), texts.clone());
+            let (mx, ti) = match which {
+                0 => (damaged(&mx, 3), ti),
+                1 => (mx, damaged(&ti, 4)),
+                n => {
+                    tx[n - 2] = damaged(&tx[n - 2], 5 + n as u64);
+                    (mx, ti)
+                }
+            };
+            let mut i = load_damaged(&exe, &mx, &ti, &tx)
+                .unwrap_or_else(|e| panic!("case {which}: a damaged data file is not a loader error: {e}"));
+            for f in [0usize, 1, 2, 350, 552, 900, LAST_STATE] {
+                i.seek(f);
+                let _ = i.indices();
+            }
+            let _ = i.slots();
+        }
     }
 
     /// Determinism and the frame index: the same frame number always gives the same screen, and

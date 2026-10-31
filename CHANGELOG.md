@@ -4,6 +4,29 @@ All notable changes to `antics` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-10-31
+
+### Fixed
+- Damaged or modified game files could crash the intro or hang the round. A `spytitl.exe` with a
+  few random bytes in its frame, mask or slot-pointer tables made the intro's script machine index
+  its data segment out of bounds (a panic); the loader now checks every pointer table and the three
+  scripts before the engine exists and refuses the file with its name, and every data-segment read,
+  write and record copy in the machine is bounds-checked as a second line. A `spy.exe` overwritten
+  with zeroes (or any file whose level table has no bare igloo interior) made `--scene round` loop
+  for ever in the fire lottery, and the object placement could re-roll a band without end; both
+  retry loops are now bounded, so the round starts or reports an error instead of hanging. A
+  caption longer than the space the data segment leaves, an oversized blit and a rect that does not
+  fit its cut buffer are clipped rather than copied past the end.
+
+### Added
+- Start-up verification: before drawing anything, every run checks the size and SHA-256 of all nine
+  game files against the embedded identity table. A modified, truncated, missing or foreign file is
+  named on stderr (directory, file, size and hash found vs expected) with the `--install` command
+  that fixes it, and the program exits non-zero (code 8) instead of decoding the bytes; on a Windows
+  GUI launch the same message appears in a message box. The check costs under a millisecond. The
+  hidden `--no-verify` flag (documented in `docs/DEVELOPERS.md` only) skips it for the stage demos
+  and the recon tools, which work on modified copies on purpose.
+
 ## [0.1.3] - 2026-10-31
 
 ### Added

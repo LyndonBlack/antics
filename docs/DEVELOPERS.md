@@ -30,7 +30,7 @@ port behaves the way it does, not because a player needs them.
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"      # distro cargo 1.93 is too old
 cargo build --release --offline
-cargo test --release --offline            # 394 tests: intro, selector, chrome, round, engine, terrain, items
+cargo test --release --offline            # 407 tests: intro, selector, chrome, round, engine, terrain, items
 ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a checkout without the game
 ./target/release/antics --frame 400 --shot /tmp/f.bmp
 ```
@@ -41,6 +41,7 @@ ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a ch
 | `--shot FILE` | write the frame as a 24-bit BMP at native 320x200 |
 | `--state FILE` | write `{frame, scene, slots, strip, palette}` as JSON |
 | `--data-dir DIR` | the directory holding the player's nine files (default: the per-user data directory `--install` wrote — see [YOU-NEED-THE-ORIGINAL.md](YOU-NEED-THE-ORIGINAL.md)); `--assets DIR` is the same thing under the harness's older name |
+| `--no-verify` | **hidden developer flag (v0.1.4)**: skip the start-up size+SHA-256 check of the nine files. The stage demos and the recon tools work on modified copies on purpose, so they pass it; a player must never need it and it is not in the README |
 | `--scene setup` | render the setup selector instead of the intro |
 | `--island 0-6` | iceberg shape, 7 variants |
 | `--launch 0\|1` | launch site: 0 = HIDE sign, 1 = SHOW sign |
@@ -178,6 +179,35 @@ checking each one's size and SHA-256; `src/install.rs` holds the one identity ta
 The formats of those files are the game's own, not the port's; nothing in this port writes a data
 file. The `assets/*.bin` files the stage reports mention are the recon's oracles and are never read
 by the engine.
+
+### Start-up verification (v0.1.4)
+
+`main()` calls `install::verify(&dirs.originals)` after the data directory is resolved and before any
+scene is drawn or the window opened. It compares all nine files' sizes and SHA-256s against
+`ORIGINALS`, the one identity table in `src/install.rs`. A mismatch or a missing file is printed to
+stderr and exits **8**; on a Windows GUI launch it also goes through `fatal_telling`, so it appears
+in the same message box as the other start-up errors. The check is deliberately **not** inside the
+loaders: `intro::Intro::load`, `game::Game::new` and `load_setup` must keep working on the synthetic
+files the tests build, so only the CLI entry point verifies.
+
+`--no-verify` skips it (see the flag table above). The eleven stage demos run against the real
+development copy and pass it without the flag; anything that points `--data-dir` at modified bytes
+must pass it, or it gets a clean exit 8 before the code under test runs.
+
+Cost: nine reads and nine SHA-256s, **0.5-0.7 ms** measured as the difference between `--frame 0`
+with and without `--no-verify` (median 5.21 ms vs 4.53 ms, 40 runs each), well inside the 100 ms
+budget. A successful `--where` exits before the check, so the diagnostic still works on a damaged
+directory.
+
+`recon/round/port_check/play/fuzz_data.py` is the tool the v0.1.4 review used and the one to re-run
+after any loader or draw-primitive change. It copies the nine files, damages one of them (empty, 1
+byte, half, minus one, all zero, all 0xFF, 1 % random, 10 % random, +5000 bytes) and runs
+`--frame 300`, `--scene setup` and `--scene round --seed 0` under a 20 s timeout and a memory cap
+(`--shot /dev/null`), once as a player would run it (the start-up check refuses most damage with
+exit 8) and once with `--no-verify` (the engine itself on the damaged bytes). It classifies every
+run as ok / clean error / panic / hang / memory kill and exits 1 if anything panicked, hung or was
+killed. The v0.1.4 sweep: 1,458 runs (9 files x 9 mutations x 3 scenes x 3 RNG seeds x 2 modes)
+with zero panics, zero hangs and zero memory kills.
 
 ## How a frame is composed
 

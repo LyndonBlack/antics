@@ -61,6 +61,11 @@ into a per-user directory: `~/.local/share/antics` (Linux, or `$XDG_DATA_HOME/an
 overrides it for one run. If the data is missing, the program says so and tells you the command to
 run, spelled the way that works on your platform (`./antics --install ...` on Linux and macOS).
 
+Every start checks the size and SHA-256 of those nine files before drawing anything, so a modified,
+truncated or incomplete copy is named on stderr (exit code 8, with the `--install` command to fix it)
+instead of being decoded into a broken screen; see
+[YOU-NEED-THE-ORIGINAL.md](docs/YOU-NEED-THE-ORIGINAL.md#troubleshooting).
+
 Run it with no arguments (or `--play`) to play. It opens the window and plays the
 original's own sequence: the intro — the MAXX OUT! card, then the animated arctic title scene, which
 ends by itself, or immediately on `Return`, `Space`, `Esc` or a click — then the setup selector, then

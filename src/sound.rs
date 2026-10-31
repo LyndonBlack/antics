@@ -914,7 +914,7 @@ mod tests {
             let mut used = vec![false; cap.len()];
             for (ptr, tl) in &timelines {
                 let Some(&(_, _, first)) = tl.iter().find(|(_, k, _)| *k == 0) else { continue };
-                for (idx, (t, k, v)) in cap.iter().enumerate() {
+                for (_, (t, k, v)) in cap.iter().enumerate() {
                     if *k != 0 || *v != first {
                         continue;
                     }

@@ -1229,6 +1229,8 @@ fn window_only_flag(arg: &str) -> Option<bool> {
         "--verbose" | "-v" => Some(false),
         // the windowed round's speaker, the spy marker, the panel's idle timeout
         "--sound" | "--no-sound" | "--no-panel-auto" | "--marker" | "--no-marker" => Some(false),
+        // v0.1.4: the hidden start-up-verification escape changes nothing about *what* runs
+        "--no-verify" => Some(false),
         "--panel-auto" => Some(true),
         _ => None,
     }
@@ -1572,6 +1574,11 @@ fn main() -> ExitCode {
     let mut install_from: Option<PathBuf> = None;
     let mut data_dir: Option<PathBuf> = None;
     let mut where_only = false;
+    // **v0.1.4** — `--no-verify` skips the start-up size+SHA-256 check of the nine files. Hidden
+    // on purpose: it exists for the stage demos and the recon tools, which point `--data-dir` at
+    // modified copies, and it must never appear in the player-facing README (docs/DEVELOPERS.md
+    // documents it).
+    let mut no_verify = false;
 
     let argv: Vec<String> = env::args().skip(1).collect();
     let mut args = argv.iter().cloned();
@@ -1592,6 +1599,8 @@ fn main() -> ExitCode {
                 }
             },
             "--where" => where_only = true,
+            // v0.1.4: the hidden developer escape from the start-up identity check.
+            "--no-verify" => no_verify = true,
             "--data-dir" => match args.next() {
                 Some(v) => data_dir = Some(PathBuf::from(v)),
                 None => {
@@ -1975,6 +1984,25 @@ fn main() -> ExitCode {
         println!("originals: {}", dirs.originals.display());
         println!("from:      {}", dirs.origin);
         return ExitCode::SUCCESS;
+    }
+
+    // **v0.1.4 — start-up verification.** Every scene decodes the nine files directly, and a
+    // `--data-dir` can name anything, so the identity of the set is checked here, once, before a
+    // single pixel is drawn or a window is opened. A mismatch is a normal start-up error: a clear
+    // sentence naming the directory and the file, the `--install` command that fixes it, and exit
+    // code 8. `--no-verify` (developers only, docs/DEVELOPERS.md) skips it for the stage demos and
+    // the recon tools, which work on modified copies on purpose.
+    if !no_verify {
+        if let Err(e) = install::verify(&dirs.originals) {
+            fatal_telling(
+                &e,
+                &format!(
+                    "antics cannot start: its game files are not the Spy vs. Spy III: Arctic \
+                     Antics 256-colour release.\n\n{e}"
+                ),
+            );
+            return ExitCode::from(8);
+        }
     }
 
     if scene == "round" {

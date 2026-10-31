@@ -191,6 +191,15 @@ You have a different release. Compare the nine sizes and hashes above. A repack 
 strips files, or a version for another platform, will not work — the port needs the MS-DOS
 executables, because the code it drives *is* `spy.exe`.
 
+**"… is not the supported release of Spy vs. Spy III: Arctic Antics (size N, expected M; sha256
+…)", exit code 8.** The start-up check found a file in the data directory whose size or hash is not
+the release this build supports — a modified, truncated, half-copied or foreign file. The message
+names the directory and the file and prints the hash it found next to the one it expects. Run
+`./antics --install <your game folder>` again (`antics.exe --install <your game folder>` on Windows)
+to replace the set from your own copy; the table at the top of this page has the nine correct sizes
+and hashes, so `sha256sum` in the data directory shows which one differs. If the folder you point at
+holds a different release, the install step will refuse it the same way.
+
 **A file is missing from the data directory.** Run `--install` again pointing at the folder that has
 your copy. If one of the nine files is missing from that folder, your copy is incomplete.
 

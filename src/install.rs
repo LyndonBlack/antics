@@ -183,6 +183,70 @@ pub fn locate(dir: &Path, name: &str) -> Option<PathBuf> {
     upper.is_file().then_some(upper)
 }
 
+/// **v0.1.4 — the nine files, checked again at every start.**
+///
+/// `--install` verifies each file as it copies it, but `--data-dir` / `--assets` can name any
+/// directory: the player may have edited a file, half-copied one, or pointed the flag at the wrong
+/// folder. Every scene decodes those bytes directly, so a start-up check is the one place that can
+/// say *which* file is wrong before a frame is drawn. The cost is nine small reads and nine
+/// SHA-256s (about a quarter of a megabyte in total; measured well under 10 ms).
+///
+/// The message names the directory, the file, what it actually is and what this build supports,
+/// and repeats the one command that fixes it -- [`command`]'s spelling, so a player who unpacked
+/// the binary can paste it.
+///
+/// Deliberately **not** called by the loaders (`intro::Intro::load`, `game::Game::new`, ...): the
+/// tests build directories of synthetic files, and the engine has to stay usable on them. It is a
+/// CLI entry-point check; `--no-verify` skips it for the stage demos and the tools.
+pub fn verify(dir: &Path) -> Result<(), String> {
+    for id in ORIGINALS {
+        let advice = format!(
+            " Run {} --install <your game folder> again.",
+            command()
+        );
+        let Some(p) = locate(dir, id.name) else {
+            return Err(format!(
+                "{}: {} is missing (the supported release has it, {} bytes).{}",
+                dir.display(),
+                id.name,
+                id.size,
+                advice
+            ));
+        };
+        let bytes = match fs::read(&p) {
+            Ok(b) => b,
+            Err(e) => return Err(format!("{}: {e}.{}", p.display(), advice)),
+        };
+        if bytes.len() != id.size {
+            return Err(format!(
+                "{}: {} is not the supported release of Spy vs. Spy III: Arctic Antics \
+                 (size {}, expected {}; sha256 {}).{}",
+                dir.display(),
+                id.name,
+                bytes.len(),
+                id.size,
+                sha256_hex(&bytes),
+                advice
+            ));
+        }
+        let got = sha256_hex(&bytes);
+        if got != id.sha256 {
+            return Err(format!(
+                "{}: {} is not the supported release of Spy vs. Spy III: Arctic Antics \
+                 (size {}, expected {}; sha256 {}, expected {}).{}",
+                dir.display(),
+                id.name,
+                bytes.len(),
+                id.size,
+                got,
+                id.sha256,
+                advice
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Check one file's size and digest.
 pub fn check(dir: &Path, id: &Ident) -> Result<PathBuf, String> {
     let Some(p) = locate(dir, id.name) else {
@@ -831,6 +895,42 @@ mod tests {
         let dir = Scratch::new("not-a-folder");
         let bogus = dir.path().join("nope");
         let err = install(&bogus, dir.path()).expect_err("no folder there");
+        assert!(err.contains(&format!("{} --install", command())), "{err}");
+    }
+
+    /// **v0.1.4 — the start-up check accepts the reference set.**
+    #[test]
+    fn verify_accepts_the_reference_set() {
+        let Some(s) = copy_of_original("verify-good") else { return };
+        assert_eq!(verify(s.path()), Ok(()), "the untouched reference copy is the supported release");
+    }
+
+    /// **v0.1.4 — one flipped byte, same size, is named.** This is the case the old check could not
+    /// see: `--install` would have refused it, but a `--data-dir` pointed at an edited copy used to
+    /// be decoded anyway. The message names the directory and the file, gives both sizes, and says
+    /// how to fix it with this platform's spelling of the command.
+    #[test]
+    fn verify_names_a_single_flipped_byte() {
+        let Some(s) = copy_of_original("verify-byte") else { return };
+        let p = s.path().join("TITLE.DAT");
+        let mut b = fs::read(&p).expect("read");
+        b[1234] ^= 0x01;
+        fs::write(&p, &b).expect("write");
+        let err = verify(s.path()).expect_err("a flipped byte is not the release");
+        assert!(err.contains(&s.path().display().to_string()), "{err} names the directory");
+        assert!(err.contains("TITLE.DAT is not the supported release"), "{err}");
+        assert!(err.contains("size 16000, expected 16000"), "{err}");
+        assert!(err.contains(&sha256_hex(&b)), "{err} prints what it found");
+        assert!(err.contains(&format!("{} --install", command())), "{err} says how to fix it");
+    }
+
+    /// **v0.1.4 — a missing file is named too**, not reported as a generic "not found".
+    #[test]
+    fn verify_names_a_missing_file() {
+        let Some(s) = copy_of_original("verify-missing") else { return };
+        fs::remove_file(s.path().join("DEMO.DAT")).expect("rm");
+        let err = verify(s.path()).expect_err("the set is incomplete");
+        assert!(err.contains("DEMO.DAT is missing"), "{err}");
         assert!(err.contains(&format!("{} --install", command())), "{err}");
     }
 

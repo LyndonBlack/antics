@@ -49,7 +49,7 @@ fi
 
 # --- what goes in ---------------------------------------------------------------------------
 # Files kept by name. Directories kept whole: src/, docs/, scripts/.
-KEEP_FILES=(Cargo.toml Cargo.lock README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md)
+KEEP_FILES=(Cargo.toml Cargo.lock README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md THIRD-PARTY-NOTICES.md)
 # Paths that must never appear in the result, whatever else happens.
 EXCLUDED_DIRS=(assets play recon target .git)
 EXCLUDED_FILES=(HAND_TEST_CHECKLIST.md)
@@ -77,6 +77,10 @@ if [ -d "$SRC/ci" ]; then
         [ -f "$wf" ] || continue
         cp -p "$wf" "$TARGET/.github/workflows/$(basename "$wf")"
     done
+    if [ -f "$SRC/ci/dependabot.yml" ]; then
+        rm -f "$TARGET/.github/workflows/dependabot.yml"
+        cp -p "$SRC/ci/dependabot.yml" "$TARGET/.github/dependabot.yml"
+    fi
 fi
 
 cat > "$TARGET/.gitignore" <<'GITIGNORE'

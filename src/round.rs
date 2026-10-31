@@ -1440,11 +1440,27 @@ pub fn place_round_objects(
     let mut i = count as i32;
     while i >= 0 {
         let slot = (i / 2) as usize;
-        let (band, off) = loop {
+        // **v0.1.4** — the band is drawn at random until a spot on it is free; `find_object_spot`
+        // reports "no spot on this band" (`terrain` code 1, or 4096 draws), and the original then
+        // re-draws a band and tries again. With a level/terrain table from a damaged `spy.exe`
+        // *every* band can refuse, and that retry never ends. The measured corpus needs at most
+        // 816 retries for one slot (the twelve-clock test, 168 placements, max 816), so 4,096 is a
+        // wide margin; when it is exhausted the remaining slots are left empty and the round still
+        // starts.
+        let mut tries = 0;
+        let placed = loop {
             let band = ((rng.byte() as usize / 0x1A) & 0xFE) as u16;
             if let Some(off) = find_object_spot(ds, ds_img, levels, terrain, band, rng) {
-                break (band, off);
+                break Some((band, off));
             }
+            tries += 1;
+            if tries >= 4096 {
+                break None;
+            }
+        };
+        let Some((band, off)) = placed else {
+            i -= 2;
+            continue;
         };
         let Some(base) = block_addr(ds_img, band) else {
             i -= 2;
@@ -1576,7 +1592,15 @@ pub fn place_hatch(
 /// (the attract round's `0x770D` and every `--seed`) land a fire on their first sweep, so the
 /// unbounded loop is only ever reached in clock mode.
 pub fn place_igloo_fires(levels: &mut [[u16; 12]; 10], rng: &mut ObjRng) -> u16 {
-    loop {
+    // **v0.1.4** — a hard cap on the re-roll. The loop above is the original's own, and it ends
+    // because a real level table always holds `0x12` interiors for the lottery to hit. A file that
+    // is not the supported release can hold a table with none (`spy.exe` overwritten with zeroes
+    // leaves every level 0, so `got` is never set), and `goto 26ae` then never returns: the round
+    // start hung before it drew a frame. Sixty-four sweeps is far more than the one a real table
+    // needs -- the measured corpus never takes a second -- so nothing changes for a good file, and
+    // a bad one now gets a fireless island instead of a hang. `Game::new`'s caller is told the file
+    // is not the supported release by the start-up check long before it gets here.
+    for _ in 0..64 {
         let mut fires = 0u16;
         let mut got = false;
         for cell in (0..60usize).rev() {
@@ -1596,6 +1620,8 @@ pub fn place_igloo_fires(levels: &mut [[u16; 12]; 10], rng: &mut ObjRng) -> u16 
             return fires;
         }
     }
+    // A table with no bare interior at all: no fire, and the round continues (v0.1.4).
+    0
 }
 
 /// One frame of a descent/animation script — `CS:09be..0xa03`. The three words the raised branch
@@ -2421,6 +2447,25 @@ mod tests {
             return None;
         }
         Some(RoundState::from_ds_dump(&p).expect("parse dump"))
+    }
+
+    /// **v0.1.4 — a table with no `0x12` interior cannot hang the round start.**
+    ///
+    /// `place_igloo_fires` is the original's `goto 26ae` re-roll: it sweeps the 60 cells until the
+    /// lottery lights at least one fire. A `spy.exe` that is not the supported release can hold a
+    /// level table with no bare interior at all, and then `got` is never set. The all-zero
+    /// `spy.exe` the security review used did exactly that and `--scene round` never returned.
+    #[test]
+    fn a_fireless_level_table_returns_instead_of_looping() {
+        let mut levels = [[0u16; 12]; 10];
+        let mut rng = ObjRng::at(0x469);
+        let t = std::time::Instant::now();
+        assert_eq!(place_igloo_fires(&mut levels, &mut rng), 0, "no fire can be placed");
+        assert!(
+            t.elapsed() < std::time::Duration::from_secs(2),
+            "the re-roll is bounded: took {:?}",
+            t.elapsed()
+        );
     }
 
     /// The strip the model composes and the strip the real game left in the same dump.
