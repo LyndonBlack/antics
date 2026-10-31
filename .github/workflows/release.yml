@@ -118,7 +118,7 @@ jobs:
           BINPATH="target/${{ matrix.triple }}/release/${BIN}${{ matrix.ext }}"
           # Write the strings to a file first: piping `strings` into `grep -q` under pipefail
           # fails the step whenever grep exits early.
-          strings -a "$BINPATH" > strings.txt || true
+          strings -a -n 3 "$BINPATH" > strings.txt || true
           has() { grep -q -- "$1" strings.txt; }
           case "${{ matrix.name }}" in
             linux-*)   has '^x11$' && has '^wayland$' || { echo "SDL was built without X11/Wayland"; exit 1; } ;;
