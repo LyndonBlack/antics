@@ -5,6 +5,8 @@ game — in Rust. It runs your own copy of the original: it reads the original's
 files at run time, reimplements their behaviour from the disassembly, and draws every screen itself,
 with a port of the original's own drawing code.
 
+**Website:** <https://lyndonblack.github.io/antics/>
+
 **This repository contains no original game code, art or sound.** No game files are included, here or
 in the releases. You need to own the game.
 
@@ -73,7 +75,7 @@ the rounds, each of which returns to the selector. Closing the window quits at a
 
 ### Windows installer
 
-On Windows there is also an installer, `antics-0.1.3-windows-x86_64-setup.exe`, on the Releases page.
+On Windows there is also an installer, `antics-<version>-windows-x86_64-setup.exe`, on the Releases page.
 It installs for the current user only (no administrator rights), offers **Start Menu** and desktop
 shortcuts, and does the `--install` step for you:
 

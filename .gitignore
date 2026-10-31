@@ -7,6 +7,7 @@ assets/
 *.exe
 *.dat
 *.png
+!site/banner.png
 *.bmp
 *.wav
 # private working material

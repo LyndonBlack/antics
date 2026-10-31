@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src https://api.github.com; base-uri 'none'; form-action 'none'">
+<title>antics — Spy vs. Spy III: Arctic Antics, revisited</title>
+<meta name="description" content="antics is a from-scratch, open-source reimplementation of the engine of Spy vs. Spy III: Arctic Antics. Bring your own copy of the game. Windows, macOS and Linux.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230002fc'/%3E%3Cpath d='M2 12l4-7 3 4 2-3 3 6z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="banner">
+  <img src="banner.png" width="1448" height="482" alt="Antics Revisited: a white spy holding a bomb and a black spy holding dynamite face each other across the ice">
+</header>
+
+<nav aria-label="Page sections">
+  <a href="#download">Download</a>
+  <a href="#setup">Set-up</a>
+  <a href="#play">How to play</a>
+  <a href="#homage">Homage</a>
+  <a href="#about">About</a>
+</nav>
+
+<main>
+
+<section class="lead panel">
+  <p><strong>antics</strong> is a free, open-source rebuild of the engine behind <em>Spy vs. Spy III: Arctic Antics</em>,
+  the 1987 DOS game: two spies, one iceberg, three rocket parts, a blizzard coming in and a lot of snowballs.</p>
+  <p>It is written from scratch in Rust and runs on <strong>Windows, macOS and Linux</strong>. It draws every screen
+  itself with a port of the original's own drawing code, run on <strong>your own copy of the game</strong>.
+  Nothing from the original is in this project, so you need to bring the game files.</p>
+</section>
+
+<section id="download" class="panel">
+  <h2>Download</h2>
+  <p id="rel-status" class="muted">Looking up the latest release…</p>
+  <div class="buttons" id="buttons">
+    <a class="btn primary" data-os="win-setup" href="https://github.com/LyndonBlack/antics/releases/latest"><span class="os">Windows</span><span class="what">Installer (recommended)</span></a>
+    <a class="btn" data-os="win-zip" href="https://github.com/LyndonBlack/antics/releases/latest"><span class="os">Windows</span><span class="what">Portable .zip</span></a>
+    <a class="btn" data-os="mac-arm" href="https://github.com/LyndonBlack/antics/releases/latest"><span class="os">macOS</span><span class="what">Apple Silicon (M1 and later)</span></a>
+    <a class="btn" data-os="mac-intel" href="https://github.com/LyndonBlack/antics/releases/latest"><span class="os">macOS</span><span class="what">Intel</span></a>
+    <a class="btn" data-os="linux" href="https://github.com/LyndonBlack/antics/releases/latest"><span class="os">Linux</span><span class="what">x86-64 .tar.gz</span></a>
+  </div>
+  <p class="small">Every release has a <code>SHA256SUMS</code> file so you can check what you downloaded. The programs are
+  not code-signed, so Windows and macOS will ask you to confirm once (see below). All releases:
+  <a href="https://github.com/LyndonBlack/antics/releases">github.com/LyndonBlack/antics/releases</a>.</p>
+</section>
+
+<section class="panel need">
+  <h2>You need the original game</h2>
+  <p>antics contains <strong>no</strong> program code, graphics or sound from <em>Spy vs. Spy III: Arctic Antics</em>.
+  To play, you supply the original game's files from a copy you are entitled to use. Nine of them are needed:
+  <code>SPY.EXE</code>, <code>SPYTITL.EXE</code>, <code>TITLE.DAT</code>, <code>TRAP.PIC</code>, <code>MAXX.PIC</code>,
+  <code>DEMO.DAT</code> and <code>TEXT1.DAT</code>, <code>TEXT2.DAT</code>, <code>TEXT3.DAT</code> (the 256-colour CGA release).
+  antics checks each one's size and SHA-256 and tells you plainly if something is not the supported release.</p>
+  <p>Sizes, checksums and details are in
+  <a href="https://github.com/LyndonBlack/antics/blob/main/docs/YOU-NEED-THE-ORIGINAL.md">YOU-NEED-THE-ORIGINAL.md</a>.
+  Where you get your copy, and whether you may use it, is your responsibility; the game is still under copyright.</p>
+</section>
+
+<section id="setup" class="panel">
+  <h2>Set-up</h2>
+  <div class="cols">
+
+    <article>
+      <h3>Windows</h3>
+      <ol>
+        <li>Download and run the <b>setup</b> program. Windows may say <em>“Windows protected your PC”</em> because the
+            installer is not code-signed: choose <b>More info</b>, then <b>Run anyway</b>.</li>
+        <li>Pick where to install antics (the default is fine; no administrator rights are needed).</li>
+        <li>Pick the folder that holds your copy of the game, the one with <code>SPY.EXE</code> in it. You can leave
+            it empty and do it later.</li>
+        <li>Finish, and start <b>antics</b> from the Start Menu.</li>
+      </ol>
+      <p class="small">Prefer the zip? Unpack it, open a Command Prompt in that folder and run
+      <code>antics.exe --install C:\path\to\your\game</code>, then <code>antics.exe</code>.</p>
+    </article>
+
+    <article>
+      <h3>macOS</h3>
+      <ol>
+        <li>Download the build for your Mac and double-click it to unpack.</li>
+        <li>Open <b>Terminal</b>, go to the unpacked folder, and tell macOS you trust it (first time only):
+<pre>cd ~/Downloads/antics-*-macos-*/
+xattr -d com.apple.quarantine ./antics</pre></li>
+        <li>Point it at your game folder once:
+<pre>./antics --install ~/path/to/your/game</pre></li>
+        <li>Play: <code>./antics</code></li>
+      </ol>
+      <p class="small">Or right-click <code>antics</code> and choose <b>Open</b> instead of the <code>xattr</code> step.</p>
+    </article>
+
+    <article>
+      <h3>Linux</h3>
+      <ol>
+        <li>Unpack the archive and go into the folder:
+<pre>tar xzf antics-*-linux-x86_64.tar.gz
+cd antics-*-linux-x86_64/</pre></li>
+        <li>Point it at your game folder once:
+<pre>./antics --install ~/path/to/your/game</pre></li>
+        <li>Play: <code>./antics</code></li>
+      </ol>
+      <p class="small">SDL2 is built in, so there is nothing else to install. Run it from the folder you unpacked it in,
+      or move <code>antics</code> to <code>~/.local/bin</code> to run it from anywhere.</p>
+    </article>
+
+  </div>
+  <p class="small">Your game files are copied to a per-user folder (<code>%APPDATA%\antics</code>,
+  <code>~/Library/Application Support/antics</code> or <code>~/.local/share/antics</code>). Your original folder is never
+  changed. Run <code>antics --where</code> (<code>./antics --where</code> on macOS and Linux) to see the path. Add <code>--verbose</code> to see what it is doing, and
+  <code>--no-sound</code> to mute it.</p>
+</section>
+
+<section id="play" class="panel">
+  <h2>How to play</h2>
+  <p>Each spy needs the three parts of the escape rocket: the <b>gyroscope</b>, the <b>fuel tank</b> and the
+  <b>punch card</b>. Find them around the iceberg (the map shows where), put them in your briefcase, and get to the
+  rocket hatch before the clock runs out. Meanwhile your body heat is draining: keep out of deep water,
+  warm up in an igloo, and make life difficult for the other spy with the <b>Trapulator</b>: saws that cut holes in
+  the ice, buckets of water that make ice patches, buried dynamite, and snowballs.</p>
+
+  <h3>Keys</h3>
+  <table>
+    <thead><tr><th></th><th>Move</th><th>Fire / action</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Player 1 &middot; white spy</th><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td><td><kbd>Return</kbd></td></tr>
+      <tr><th scope="row">Player 2 &middot; black spy</th><td><kbd>A</kbd> <kbd>W</kbd> <kbd>D</kbd> <kbd>X</kbd> <small>(X is down)</small></td><td><kbd>Q</kbd></td></tr>
+    </tbody>
+  </table>
+
+  <table>
+    <tbody>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>Leave the round (on the selector: quit)</td></tr>
+      <tr><th scope="row"><kbd>R</kbd></th><td>Restart the round</td></tr>
+      <tr><th scope="row"><kbd>F1</kbd></th><td>Show or hide the spy marker</td></tr>
+      <tr><th scope="row"><kbd>F2</kbd></th><td>Save a screenshot (BMP) to the current folder</td></tr>
+      <tr><th scope="row"><kbd>Return</kbd> / <kbd>Space</kbd> / <kbd>Esc</kbd> / click</th><td>Skip the intro</td></tr>
+    </tbody>
+  </table>
+
+  <h3>The set-up screen</h3>
+  <p>Use the arrow keys to move the highlight ring and <kbd>Return</kbd> to change the option under it: the island,
+  whether the launch site is hidden or shown, one or two players, and the difficulty. Move to <b>GO!</b> and press
+  <kbd>Return</kbd> to start. In a one-player game you are the white spy and the computer is the black spy.
+  When a round ends you come back to this screen.</p>
+
+  <h3>The fire button</h3>
+  <p>A <b>tap</b> of fire does the obvious thing: pick up what you are standing on (a mound means dig), tap again to put
+  it away. <b>Hold</b> fire and press a direction for the second action: bury what you are holding, open the Trapulator,
+  or throw a snowball. In the Trapulator, left and right choose a tool and fire takes it out. The full table is in the
+  <a href="https://github.com/LyndonBlack/antics/blob/main/docs/DEVELOPERS.md">developer notes</a>.</p>
+</section>
+
+<section id="homage" class="panel homage">
+  <h2>A tip of the hat</h2>
+  <p>Everything here stands on other people's work.</p>
+  <p><b>Antonio Prohías</b> (1921–1998), a Cuban cartoonist who fled to the United States, created
+  <em>Spy vs. Spy</em>: a wordless comic strip in <em>MAD</em> magazine, from 1961, in which a spy in white and a spy in
+  black spend their lives trying to blow each other up. He drew it until 1987. Two hats, two long beaks, no dialogue,
+  and it is still funny.</p>
+  <p><b>First Star Software</b> turned the strip into the <em>Spy vs. Spy</em> computer games in the mid-1980s:
+  <em>Spy vs. Spy</em>, <em>The Island Caper</em> and, in 1986–87, <em>Arctic Antics</em>, published in the US by
+  <b>Epyx</b>. A split screen, a Trapulator full of cruel little gadgets, a body-heat bar and a good laugh when the other
+  player walks into your saw hole: the design is so tight that it was still worth taking apart nearly forty years later.</p>
+  <p>antics exists because that game is a joy and its engine is worth understanding. It was built by studying the
+  original program and measuring recordings of it running, then writing every rule again from scratch, so
+  that a game made in 1987 keeps working on computers that did not exist yet. If you made the original, thank you.</p>
+</section>
+
+<section id="about" class="panel">
+  <h2>About this project</h2>
+  <ul>
+    <li><b>From scratch.</b> Original Rust source; not a fork of any engine or emulator, and no third-party game engine.
+        SDL2 provides the window, keyboard and sound output.</li>
+    <li><b>Checked against the real thing.</b> Behaviour is verified against recordings of the original running: item
+        placement, body heat, traps, the intro, the selector, the round screen. The notes on how are in the developer docs.</li>
+    <li><b>Free software.</b> GPL-3.0-or-later: use it, study it, change it and share it, as long as it stays free and
+        comes with its source.</li>
+    <li><b>Source and issues:</b> <a href="https://github.com/LyndonBlack/antics">github.com/LyndonBlack/antics</a></li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <p><strong>Disclaimer.</strong> antics is an unofficial, non-commercial fan project. It is not affiliated with,
+  authorised by or endorsed by the rights holders of <em>Spy vs. Spy III: Arctic Antics</em> or of the
+  <em>Spy vs. Spy</em> property (including DC Comics and <em>MAD</em> magazine). <em>Spy vs. Spy</em> and all related
+  names and characters are trademarks of their respective owners and are used here only to describe what this software
+  reimplements. antics does <b>not</b> include or distribute the original game: you must supply your own copy. The
+  software is provided “as is”, without warranty of any kind.</p>
+  <p><strong>Licence.</strong> &copy; 2026 Mostlysane. The antics source code and documentation are licensed under the
+  <a href="https://github.com/LyndonBlack/antics/blob/main/LICENSE">GNU General Public License v3.0 or later</a>. The
+  licence does not cover the original game, which is not included. The banner picture is fan artwork depicting the
+  <em>Spy vs. Spy</em> characters and is not covered by the GPL.</p>
+  <p class="links">
+    <a href="https://github.com/LyndonBlack/antics">Source</a>
+    <a href="https://github.com/LyndonBlack/antics/releases">Releases</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/LICENSE">Licence</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/THIRD-PARTY-NOTICES.md">Third-party notices</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/docs/NOTICE.md">Notice</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/docs/DEVELOPERS.md">Developer notes</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/SECURITY.md">Security &amp; takedown contact</a>
+    <a href="https://github.com/LyndonBlack/antics/blob/main/CHANGELOG.md">Changelog</a>
+  </p>
+</footer>
+
+<script src="releases.js"></script>
+</body>
+</html>

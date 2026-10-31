@@ -1,0 +1,102 @@
+/* antics site. Palette: the banner's own colours. Ice blue #7cb0f8 (page), CGA-ish blue #0002fc,
+   black and white, one hot-pink accent from the spies' noses. No web fonts, no external requests. */
+:root{
+  --ice:#7cb0f8;
+  --ice-light:#bcd8fc;
+  --ice-pale:#e6f0ff;
+  --blue:#0002fc;
+  --ink:#06061a;
+  --pink:#f070b0;
+  --white:#fff;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  min-height:100vh;display:flex;flex-direction:column;
+  margin:0;background:var(--ice);color:var(--ink);
+  font:17px/1.6 "Trebuchet MS",Verdana,system-ui,sans-serif;
+}
+a{color:var(--blue);font-weight:600}
+a:hover,a:focus{background:var(--blue);color:var(--white);text-decoration:none}
+code,kbd,pre,.os{font-family:ui-monospace,"Cascadia Mono","SF Mono",Menlo,Consolas,"Courier New",monospace}
+
+.banner{background:var(--blue);border-bottom:6px solid var(--white);box-shadow:0 6px 0 var(--ink);text-align:center}
+.banner img{display:block;width:100%;max-width:1448px;height:auto;margin:0 auto;image-rendering:auto}
+
+nav{
+  display:flex;flex-wrap:wrap;justify-content:center;gap:.4rem 1.6rem;
+  padding:1.3rem 1rem .4rem;font-family:ui-monospace,Menlo,Consolas,monospace;
+  text-transform:uppercase;letter-spacing:.08em;font-size:.95rem;
+}
+nav a{color:var(--ink);text-decoration:none;padding:.15rem .5rem;border:2px solid transparent}
+nav a:hover,nav a:focus{background:var(--ink);color:var(--white)}
+
+main{max-width:980px;width:100%;margin:0 auto;padding:1rem 1rem 2rem;flex:1}
+.panel{
+  background:var(--ice-pale);border:4px solid var(--ink);box-shadow:8px 8px 0 var(--blue);
+  padding:1.2rem 1.6rem 1.4rem;margin:1.9rem 0;
+}
+.panel h2{
+  margin:.1rem 0 .8rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:1.5rem;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--blue);
+  border-bottom:4px solid var(--ink);padding-bottom:.3rem;
+}
+.panel h3{margin:1.2rem 0 .3rem;font-size:1.1rem}
+.lead{font-size:1.15rem}
+.lead p:first-child{margin-top:0}
+.need{background:var(--white);border-color:var(--blue);box-shadow:8px 8px 0 var(--pink)}
+.homage{background:var(--ice-light)}
+.muted{color:#27345a}
+.small{font-size:.92rem}
+
+.buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:1rem;margin:1rem 0}
+.btn{
+  display:flex;flex-direction:column;gap:.15rem;padding:.8rem 1rem;text-decoration:none;
+  background:var(--white);color:var(--ink);border:4px solid var(--ink);box-shadow:5px 5px 0 var(--ink);
+}
+.btn .os{font-weight:700;font-size:1.05rem;text-transform:uppercase;letter-spacing:.06em}
+.btn .what{font-weight:400}
+.btn .size{font-size:.85rem;color:#27345a}
+.btn:hover,.btn:focus{background:var(--blue);color:var(--white);transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink)}
+.btn:hover .size,.btn:focus .size{color:#cfe0ff}
+.btn.primary{background:var(--blue);color:var(--white)}
+.btn.primary .size{color:#cfe0ff}
+.btn.primary:hover,.btn.primary:focus{background:var(--pink);color:var(--ink)}
+.btn.primary:hover .size{color:var(--ink)}
+
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,430px),1fr));gap:1.4rem}
+.cols article{background:var(--white);border:3px solid var(--ink);padding:.2rem 1rem 1rem}
+.cols h3{margin-top:.8rem;font-family:ui-monospace,Menlo,Consolas,monospace;text-transform:uppercase;color:var(--blue)}
+ol{padding-left:1.3rem;margin:.4rem 0}
+li{margin:.45rem 0}
+
+pre{background:var(--ink);color:#d8f0ff;padding:.6rem .8rem;margin:.4rem 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.88rem;line-height:1.45}
+code{background:rgba(6,6,26,.09);padding:.05rem .3rem;font-size:.92em}
+pre code{background:none;padding:0}
+kbd{
+  display:inline-block;min-width:1.7em;text-align:center;padding:.05rem .45rem;background:var(--white);color:var(--ink);
+  border:2px solid var(--ink);border-bottom-width:4px;border-radius:3px;font-size:.9rem;
+}
+
+table{border-collapse:collapse;width:100%;margin:.8rem 0;background:var(--white)}
+th,td{border:3px solid var(--ink);padding:.45rem .7rem;text-align:left;vertical-align:top}
+thead th{background:var(--ink);color:var(--white);font-family:ui-monospace,Menlo,Consolas,monospace;text-transform:uppercase;letter-spacing:.05em;font-size:.9rem}
+tbody th{background:var(--ice-light);white-space:nowrap}
+
+ul{padding-left:1.2rem}
+
+footer{
+  background:var(--ink);color:#dce8ff;margin-top:2.5rem;padding:1.8rem 1rem 2.4rem;font-size:.9rem;
+  border-top:6px solid var(--white);
+}
+footer p{max-width:980px;margin:.8rem auto}
+footer a{color:#9cc4ff}
+footer a:hover,footer a:focus{background:#9cc4ff;color:var(--ink)}
+footer .links{display:flex;flex-wrap:wrap;gap:.4rem 1.4rem;font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:1.2rem}
+
+@media (max-width:600px){
+  body{font-size:16px}
+  .panel{padding:1rem;box-shadow:5px 5px 0 var(--blue);margin:1.4rem 0}
+  tbody th{white-space:normal}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}

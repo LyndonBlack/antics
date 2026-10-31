@@ -64,7 +64,7 @@ for f in "${KEEP_FILES[@]}"; do
     cp -p "$SRC/$f" "$TARGET/$f"
 done
 
-for d in src docs scripts installer; do
+for d in src docs scripts installer site; do
     [ -d "$SRC/$d" ] || die "missing $d/ in the crate"
     cp -Rp "$SRC/$d" "$TARGET/$d"
 done
@@ -93,6 +93,7 @@ assets/
 *.exe
 *.dat
 *.png
+!site/banner.png
 *.bmp
 *.wav
 # private working material
@@ -122,7 +123,7 @@ for f in "${EXCLUDED_FILES[@]}"; do
     if [ -n "$found" ]; then printf 'AUDIT FAIL: excluded file present:\n%s\n' "$found" >&2; fail=1; fi
 done
 for g in "${EXCLUDED_GLOBS[@]}"; do
-    found="$(find "$TARGET" -type f -name "$g" -print)"
+    found="$(find "$TARGET" -type f -name "$g" -not -path "$TARGET/site/banner.png" -print)"
     if [ -n "$found" ]; then printf 'AUDIT FAIL: excluded pattern %s present:\n%s\n' "$g" "$found" >&2; fail=1; fi
 done
 
