@@ -32,6 +32,7 @@ export PATH="$HOME/.cargo/bin:$PATH"      # distro cargo 1.93 is too old
 cargo build --release --offline
 cargo test --release --offline            # 407 tests: intro, selector, chrome, round, engine, terrain, items
 ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a checkout without the game
+ANTICS_ORIGINAL_DIR=/path/to/unpacked/256 cargo run --release   # use an unpacked original kept anywhere (the folder with spy.exe)
 ./target/release/antics --frame 400 --shot /tmp/f.bmp
 ```
 

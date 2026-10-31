@@ -11,6 +11,8 @@
 //! * `ANTICS_HIDE_ORIGINAL=1` is set -- the file *is* there, and the test must behave as if it were
 //!   not, so that the "clean checkout" path can be exercised on the machine that has the original.
 //!
+//! `ANTICS_ORIGINAL_DIR` redirects where the original is looked for (see [`override_dir`]).
+//!
 //! A gated test returns early through [`skip`], which prints
 //! `skipped: original game data not present (<what>)` and passes. Nothing else about it changes:
 //! run on this machine, with the original in place, every one of them still runs and asserts.
@@ -35,10 +37,16 @@ pub fn hidden() -> bool {
     std::env::var_os("ANTICS_HIDE_ORIGINAL").is_some_and(|v| v != "0" && !v.is_empty())
 }
 
+pub use crate::install::override_dir;
+
 /// A file under the workspace root, if it is readable and not hidden.
 pub fn file(rel: &str) -> Option<PathBuf> {
     if hidden() {
         return None;
+    }
+    if let (Some(dir), Some(rest)) = (override_dir(), rel.strip_prefix(ORIGINAL_DIR)) {
+        let p = dir.join(rest.trim_start_matches('/'));
+        return p.exists().then_some(p);
     }
     let p = repo().join(rel);
     p.exists().then_some(p)
@@ -89,3 +97,34 @@ pub fn skip(what: &str) {
     eprintln!("skipped: original game data not present ({what})");
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The override redirects `original()` and the `ORIGINAL_DIR`-prefixed lookups, and only those.
+    #[test]
+    fn the_override_redirects_only_the_original_folder() {
+        let dir = std::env::temp_dir().join(format!("antics-orig-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("spy.exe"), b"x").unwrap();
+        // env is process-wide: set, assert, restore in one test so no sibling test sees it
+        let saved = std::env::var_os("ANTICS_ORIGINAL_DIR");
+        std::env::remove_var("ANTICS_ORIGINAL_DIR");
+        let other_before = file("ports/antics/Cargo.toml");
+        std::env::set_var("ANTICS_ORIGINAL_DIR", &dir);
+        let via_original = original("spy.exe");
+        let via_file = file(&format!("{ORIGINAL_DIR}/spy.exe"));
+        let other = file("ports/antics/Cargo.toml");
+        std::env::set_var("ANTICS_ORIGINAL_DIR", "");
+        let empty = override_dir();
+        match saved {
+            Some(v) => std::env::set_var("ANTICS_ORIGINAL_DIR", v),
+            None => std::env::remove_var("ANTICS_ORIGINAL_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(via_original, Some(dir.join("spy.exe")));
+        assert_eq!(via_file, Some(dir.join("spy.exe")));
+        assert_eq!(other, other_before, "other paths are untouched");
+        assert!(empty.is_none(), "an empty value means unset");
+    }
+}

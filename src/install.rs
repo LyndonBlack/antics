@@ -122,7 +122,18 @@ pub struct Dirs {
 /// The development path: the unpacked release beside this checkout. **Looked at, never named in
 /// a message** -- on a player's machine it does not exist, and a release build must not send them
 /// to a directory of ours.
+/// `ANTICS_ORIGINAL_DIR=<folder>` points development builds and tests at an unpacked copy of the game
+/// kept anywhere (the folder that holds `spy.exe`, `TRAP.PIC`, ...) instead of the in-tree
+/// `spy-vs-spy-iii/original/256`. Unset or empty means the in-tree path. A developer aid: it is not in
+/// `--help` and never appears in a message a player sees.
+pub fn override_dir() -> Option<PathBuf> {
+    std::env::var_os("ANTICS_ORIGINAL_DIR").filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
 fn dev_original_dir() -> PathBuf {
+    if let Some(d) = override_dir() {
+        return d;
+    }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     // `ports/spy-vs-spy-iii` -> the workspace root, without a `..` in the printed path
     let root = manifest.parent().and_then(|p| p.parent()).map(Path::to_path_buf)
@@ -820,7 +831,9 @@ mod tests {
         assert!(!is_installed(empty.path()));
         let dirs = resolve_with(None, None, Some(empty.path())).expect("resolve");
         assert_eq!(dirs.origin, "development paths");
-        assert!(dirs.originals.ends_with(ORIGINAL_DEV));
+        if override_dir().is_none() {
+            assert!(dirs.originals.ends_with(ORIGINAL_DEV));
+        }
     }
 
     /// **The text a player sees names the data directory and the command, and nothing of ours.**
