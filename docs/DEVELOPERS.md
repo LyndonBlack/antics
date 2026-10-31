@@ -30,7 +30,7 @@ port behaves the way it does, not because a player needs them.
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"      # distro cargo 1.93 is too old
 cargo build --release --offline
-cargo test --release --offline            # 385 tests: intro, selector, chrome, round, engine, terrain, items
+cargo test --release --offline            # 394 tests: intro, selector, chrome, round, engine, terrain, items
 ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a checkout without the game
 ./target/release/antics --frame 400 --shot /tmp/f.bmp
 ```
@@ -84,11 +84,43 @@ ANTICS_HIDE_ORIGINAL=1 cargo test --release --offline   # the same suite as a ch
 | `--heat2 N` | **demo aid**: seed only the second spy's heat, so a panel can freeze *one* spy while the other plays |
 | `--parts` | **demo aid**: `kit |= 0x2C0` on both spies — all three parts are in the briefcase, so a spy who steps on the hatch launches instead of meeting the bear (`--start-hatch` puts him on it) |
 | `--scale N` | window scale, 1-8 (default 3 = 960x600) |
+| `--verbose`, `-v` | print the diagnostic chatter (off by default, see below) |
 
 `ANTICS_ANIMATE=0` disables the animated band, to compare against the static scene.
 
+### `--verbose`: what the program says, and when
+
+Since v0.1.2 the program is **quiet by default**: a plain `antics` prints nothing on stdout or
+stderr while it plays. Everything it used to say about its own progress is a **note**, and notes
+print only with `--verbose` / `-v` (anywhere on the command line; it takes no value and is a
+window/data option, so `antics -v` plays).
+
+One switch, one macro: `static VERBOSE: AtomicBool` in `src/verbose.rs`, set once in `main` from
+`verbosity_requested(&argv)`, read by `note!` (a `println!` behind `verbose::on()`). Use `note!` for
+new informational lines — never `println!`/`eprintln!` — and leave these alone:
+
+* **errors** — every failure and every usage/argument error, on stderr, with its exit code;
+* **explicitly-requested output** — `--install` and `--where`, and every flag whose *purpose* is to
+  print (`--state`, `--shot`'s report, `--layout`, `--dump-objects`, `--tick-trace`, `--state-every`,
+  `--sound-dump`, `--cpu-probe`, `--cpu-corpus`, `--trace`, the `--scene round --ds` report, ...).
+  A flag that exists to print something prints without `--verbose`.
+
+The notes today: the intro's timing and skip, the item placement's clock seeding, the window
+geometry, the speaker (or `--no-sound`), the selector's key legend, `GO!`/restart/abandon, every
+item change and room change, the round's end, the attract demo, the panel's idle timeout and the
+`F2` save. Tests that `eprintln!` their own progress are not affected (they are test output, not
+program output).
+
 The CLI is the contract in `docs/adr/0002-port-cli-contract.md`. Rendering is a pure function of
 (the player's nine files, frame index): no clock, no RNG, no threads.
+
+### The command in a message is the one that works
+
+A binary in the folder a player unpacked it in is **not on `PATH`** on Linux or macOS, so
+`antics --install ...` is `command not found` there. Every message that names a command prints it
+through `install::command()` — `./antics` on unix, `antics.exe` on Windows — never the bare name
+and never a guess at the player's `PATH`. `install::tests::the_message_prints_the_command_that_works_on_this_platform`
+and `the_not_found_message_tells_the_player_what_to_do` hold that.
 
 ## The player's nine files (the install directory)
 

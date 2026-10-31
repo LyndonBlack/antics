@@ -1517,7 +1517,8 @@ impl Game {
                         }
                     }
                     let _ = row;
-                    eprintln!("antics: no random start on island {} — falling back to x={:?}",
+                    // a fallback that changes nothing a player would notice: diagnostic, `-v` only
+                    crate::note_err!("antics: no random start on island {} — falling back to x={:?}",
                               data.island + 1, found);
                     p.screen = screen;
                     let x = found.unwrap_or(START_X_BASE + 12);

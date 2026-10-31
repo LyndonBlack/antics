@@ -251,8 +251,9 @@ pub fn install(src: &Path, dest: &Path) -> Result<Report, String> {
     if !src.is_dir() {
         return Err(format!(
             "{} is not a folder.\nPass the folder that holds your own copy of the game: \
-             antics --install /path/to/spy-vs-spy-iii",
-            src.display()
+             {} --install /path/to/spy-vs-spy-iii",
+            src.display(),
+            command()
         ));
     }
 
@@ -378,6 +379,21 @@ pub fn sha256_hex(data: &[u8]) -> String {
 
 // ---- the message a player sees when there is nothing to run -----------------
 
+/// **The command a player types**, in the form that works where they are.
+///
+/// A binary sitting in the folder they unpacked it in is **not on `PATH`** on Linux or macOS, so
+/// `antics --install ...` fails with `command not found` there; `./antics --install ...` works. On
+/// Windows the current directory is searched, and the released file is `antics.exe`. Program
+/// messages therefore spell the command this way — always the relative form, never a guess at the
+/// player's `PATH`.
+pub fn command() -> &'static str {
+    if cfg!(windows) {
+        "antics.exe"
+    } else {
+        "./antics"
+    }
+}
+
 /// Printed instead of a raw `io::Error` when no original and no installed set can be found.
 ///
 /// **No development path appears here, in any build.** On a player's machine
@@ -400,13 +416,21 @@ pub fn not_found_looking_in(also: &[&Path]) -> String {
             where_.push(s);
         }
     }
-    format!(
+    let mut msg = format!(
         "Original game data not found.\n\
-         Run: antics --install <folder with your copy of Spy vs Spy III: Arctic Antics>\n\
-         (looked in {})\n\
-         See docs/YOU-NEED-THE-ORIGINAL.md",
-        where_.join(", ")
-    )
+         Run: {} --install <folder with your copy of Spy vs Spy III: Arctic Antics>\n",
+        command()
+    );
+    // the one thing that makes that command fail on a unix box, said once (a player who ran it
+    // from `~/Downloads/antics-0.1.2-linux` got `antics: command not found`)
+    if !cfg!(windows) {
+        msg.push_str(
+            "Run it from the folder you unpacked it in, as shown, or put the binary on your PATH\n\
+             (e.g. move it to ~/.local/bin).\n",
+        );
+    }
+    msg.push_str(&format!("(looked in {})\nSee docs/YOU-NEED-THE-ORIGINAL.md", where_.join(", ")));
+    msg
 }
 
 // ---- tests ---------------------------------------------------------------
@@ -713,11 +737,24 @@ mod tests {
     ///
     /// A release build must never print `../../spy-vs-spy-iii/original/256`: on the player's
     /// machine that path does not exist, and naming it would send them looking for our checkout.
+    /// The command it prints is the one that works where it runs — `./antics` on unix, where a
+    /// binary in the current directory is not on `PATH`.
     #[test]
     fn the_not_found_message_tells_the_player_what_to_do() {
         let msg = not_found();
         assert!(msg.starts_with("Original game data not found."), "{msg}");
-        assert!(msg.contains("antics --install <folder with your copy"), "{msg}");
+        assert!(
+            msg.contains(&format!("{} --install <folder with your copy", command())),
+            "{msg}"
+        );
+        if cfg!(windows) {
+            assert!(!msg.contains("./antics"), "no unix spelling on windows: {msg}");
+        } else {
+            assert!(msg.contains("Run: ./antics --install"), "the relative form: {msg}");
+            // and why that form, once, without guessing at the player's PATH
+            assert!(msg.contains("folder you unpacked it in"), "{msg}");
+            assert!(msg.contains("PATH"), "{msg}");
+        }
         assert!(msg.contains("docs/YOU-NEED-THE-ORIGINAL.md"), "{msg}");
         assert!(!msg.contains("../../"), "the message names a relative path: {msg}");
         assert!(!msg.contains("development"), "{msg}");
@@ -725,6 +762,25 @@ mod tests {
         // the data directory it did look in is the per-user one
         let d = data_root(None).expect("a home directory");
         assert!(msg.contains(&d.display().to_string()), "{msg}");
+    }
+
+    /// **The command in the messages is the one that works there.** On Linux and macOS a binary in
+    /// the current directory is not on `PATH`, so a player who followed "`antics --install ~/svs3`"
+    /// from the folder they unpacked got `antics: command not found`; `./antics` is what to print.
+    /// Windows searches the current directory and ships `antics.exe`.
+    #[test]
+    fn the_message_prints_the_command_that_works_on_this_platform() {
+        if cfg!(windows) {
+            assert_eq!(command(), "antics.exe", "the released file name");
+        } else {
+            assert_eq!(command(), "./antics", "the relative form a shell in that folder runs");
+            assert!(!command().starts_with("antics "), "never the bare name on unix");
+        }
+        // the "not a folder" error carries it too
+        let dir = Scratch::new("not-a-folder");
+        let bogus = dir.path().join("nope");
+        let err = install(&bogus, dir.path()).expect_err("no folder there");
+        assert!(err.contains(&format!("{} --install", command())), "{err}");
     }
 
     /// The data directory is per user and per platform, from `std::env` alone.

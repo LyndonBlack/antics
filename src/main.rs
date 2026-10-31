@@ -28,6 +28,12 @@
 //! `--scene setup --play` / `--scene round --play` are unchanged. A window that cannot open is an
 //! error (exit 7), never a silent exit 0.
 //!
+//! **Quiet by default (v0.1.2).** Nothing informational is printed unless `--verbose` / `-v` is on
+//! the command line: the intro's timing, the window size, the speaker, the selector's keys, the
+//! per-event item/room lines and the panel notes all go through `note!` (see `src/verbose.rs`).
+//! Errors, usage errors, `--install`/`--where` and every flag that exists to print something are
+//! unconditional, exactly as before.
+//!
 //! The player's files are looked for in this order, so a released binary needs no flags at all: an
 //! explicit `--data-dir`/`--assets`, then the per-user data directory (`$XDG_DATA_HOME/antics`,
 //! `%APPDATA%\antics`, `~/Library/Application Support/antics`) when `--install` has written a set
@@ -54,6 +60,7 @@ mod round;
 mod selector_draw;
 mod sound;
 mod terrain;
+mod verbose;
 #[cfg(feature = "window")]
 mod window;
 
@@ -771,7 +778,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
     // command-line defaults: a round started from the selector has to keep the island, the player
     // count and the launch site the player picked there.
     let mut started_opts = opts.clone();
-    println!("antics: window {}x ({}x{}) — F1 spy marker, F2 save a BMP, R restart, Esc back",
+    crate::note!("antics: window {}x ({}x{}) — F1 spy marker, F2 save a BMP, R restart, Esc back",
              win.scale, crate::W as u32 * win.scale, crate::H as u32 * win.scale);
     let mut shot_no = 0u32;
     // **stage 18g** — the PC speaker. `--no-sound` (or a machine with no audio device) leaves it
@@ -779,12 +786,12 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
     let speaker = if sound_on {
         let sp = window::Speaker::open(0.18);
         match &sp {
-            Some(s) => println!("antics: PC speaker on ({} Hz, square wave)", s.rate),
-            None => println!("antics: no audio device — running silent"),
+            Some(s) => crate::note!("antics: PC speaker on ({} Hz, square wave)", s.rate),
+            None => crate::note!("antics: no audio device — running silent"),
         }
         sp
     } else {
-        println!("antics: sound off (--no-sound)");
+        crate::note!("antics: sound off (--no-sound)");
         None
     };
     // The engine ticks at 240 Hz (the original's reprogrammed PIT) but draws **once a game frame**
@@ -793,10 +800,10 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
     // which is also the panel's own 30 Hz (`CS:0F0D`).
     let mut loop_ticks: u64 = 0;
     let mut screen = if start_in_round {
-        println!("antics: starting the round directly (--go)");
+        crate::note!("antics: starting the round directly (--go)");
         AppScreen::Round(Box::new(game::Game::new(exe.clone(), &opts)?))
     } else {
-        println!("antics: setup selector — arrows move, RETURN acts on the highlighted zone, \
+        crate::note!("antics: setup selector — arrows move, RETURN acts on the highlighted zone, \
                   RETURN on GO! starts the round");
         AppScreen::Setup
     };
@@ -809,7 +816,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
         }
         if frame.is_pressed("f1") {
             marker = !marker;
-            println!("antics: spy marker {}", if marker { "on" } else { "off" });
+            crate::note!("antics: spy marker {}", if marker { "on" } else { "off" });
         }
         match &mut screen {
             AppScreen::Setup => {
@@ -830,7 +837,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
                 if panel_auto && !sel.started && !sel.demo && loop_ticks % SETUP_REDRAW == 0
                     && sel.panel_frame()
                 {
-                    println!(
+                    crate::note!(
                         "antics: panel timeout — {PANEL_FRAMES_TO_START} frames ({:.1} s) of no \
                          input: the attract demo, island 1, launch site SHOW, {} recorded frames",
                         PANEL_FRAMES_TO_START as f64 / PANEL_HZ as f64,
@@ -843,7 +850,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
                     let o = demo_opts(&opts, &demo_stream);
                     started_opts = o.clone();
                     let g = game::Game::new(exe.clone(), &o)?;
-                    println!(
+                    crate::note!(
                         "antics: demo — island {}, site SHOW, both spies on the recorded stream \
                          ({} frames), clock {} s, placement state {:#06x}",
                         o.island + 1,
@@ -856,7 +863,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
                 }
                 if sel.started {
                     let o = opts_for_selector(&opts, &sel);
-                    println!(
+                    crate::note!(
                         "antics: GO! island {} {} player(s), launch site {}, {} clock",
                         o.island + 1,
                         o.players,
@@ -880,7 +887,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
             }
             AppScreen::Round(g) => {
                 if frame.is_pressed("escape") {
-                    println!("antics: round abandoned (Escape) — back to the selector");
+                    crate::note!("antics: round abandoned (Escape) — back to the selector");
                     if let Some(sp) = &speaker {
                         sp.silence(); // `CS:051F`: the speaker is turned off on the way out
                     }
@@ -889,7 +896,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
                     continue;
                 }
                 if frame.is_pressed("r") {
-                    println!("antics: restarting the round");
+                    crate::note!("antics: restarting the round");
                     if let Some(sp) = &speaker {
                         sp.silence();
                     }
@@ -913,7 +920,7 @@ fn play_app(mut win: window::Window, setup: &Setup, mut sel: Selector, opts: gam
                 for i in 0..g.players {
                     let now = (g.spies[i].carried, g.spies[i].kit, g.spies[i].dyn_sticks);
                     if now != items_before[i] {
-                        println!(
+                        crate::note!(
                             "antics: items P{} -- held {} -> {} ({}), kit {:#06x} -> {:#06x}, \
 sticks {}, panel {} at slot {}, mask {:#06x}",
                             i + 1,
@@ -930,7 +937,7 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
                 }
                 for i in 0..g.players {
                     if g.spies[i].screen != before[i] {
-                        println!(
+                        crate::note!(
                             "antics: room change P{} screen {} -> {} (x {} y {})",
                             i + 1, before[i], g.spies[i].screen, g.spies[i].x(), g.spies[i].y()
                         );
@@ -943,7 +950,7 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
                     if let Some(sp) = &speaker {
                         sp.silence();
                     }
-                    println!("antics: round over ({}) — back to the selector, no winner",
+                    crate::note!("antics: round over ({}) — back to the selector, no winner",
                              match g.end {
                                  Some(game::RoundEnd::Clock) => "the clock reached 00:00",
                                  Some(game::RoundEnd::Launch) => "the rocket went up",
@@ -951,7 +958,7 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
                                  None => "unknown",
                              });
                     if g.is_demo() {
-                        println!(
+                        crate::note!(
                             "antics: demo over after {} frames ({:.1} s of recorded input) — the \
                              panel is up again with its {:.1} s wait restarted",
                             g.demo_frames(),
@@ -963,7 +970,7 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
                     // with the same choices still latched and its counter started again.
                     panel_entry(&mut sel);
                     if panel_auto {
-                        println!("antics: panel — GO! starts it, or it starts itself in {} s",
+                        crate::note!("antics: panel — GO! starts it, or it starts itself in {} s",
                                  PANEL_FRAMES_TO_START / PANEL_HZ);
                     }
                     screen = AppScreen::Setup;
@@ -980,7 +987,7 @@ sticks {}, panel {} at slot {}, mask {:#06x}",
                     let p = std::path::PathBuf::from(format!("antics-shot-{shot_no:03}.bmp"));
                     shot_no += 1;
                     win.save(&p, &s)?;
-                    println!("antics: saved {}", p.display());
+                    crate::note!("antics: saved {}", p.display());
                 }
                 win.present(&s)?;
             }
@@ -1047,7 +1054,7 @@ fn play_intro(win: &mut window::Window, mut engine: intro::Intro,
               frame_ticks: u32) -> Result<IntroFlow, String> {
     let period = intro_dispatch_period(frame_ticks);
     let hz = game::TICK_HZ as f64 / frame_ticks.max(1) as f64;
-    println!(
+    crate::note!(
         "antics: intro — the MAXX card holds {} s (the original's own wait), then {} screens of \
          the arctic scene at {:.2} a second. Return/Space/Esc or a click skips it.",
         INTRO_CARD_HOLD_TICKS / game::TICK_HZ as u64,
@@ -1065,7 +1072,7 @@ fn play_intro(win: &mut window::Window, mut engine: intro::Intro,
             return Ok(IntroFlow::Quit);
         }
         if frame.click || frame.is_pressed("return") || frame.is_pressed("escape") {
-            println!("antics: intro skipped");
+            crate::note!("antics: intro skipped");
             return Ok(IntroFlow::Skipped);
         }
         ticks += 1;
@@ -1084,7 +1091,7 @@ fn play_intro(win: &mut window::Window, mut engine: intro::Intro,
             return Ok(IntroFlow::Quit);
         }
         if frame.click || frame.is_pressed("return") || frame.is_pressed("escape") {
-            println!("antics: intro skipped");
+            crate::note!("antics: intro skipped");
             return Ok(IntroFlow::Skipped);
         }
         acc += 1000;
@@ -1104,7 +1111,7 @@ fn play_intro(win: &mut window::Window, mut engine: intro::Intro,
         }
         win.pace();
     }
-    println!("antics: intro over — the setup selector");
+    crate::note!("antics: intro over — the setup selector");
     Ok(IntroFlow::Finished)
 }
 
@@ -1154,7 +1161,8 @@ fn run_install(src: &Path, data_flag: Option<&Path>) -> ExitCode {
             }
             println!(
                 "\nantics now draws the intro, the selector and the round from these files. \
-                 Run `antics` with no arguments."
+                 Run `{}` with no arguments.",
+                install::command()
             );
             ExitCode::SUCCESS
         }
@@ -1200,6 +1208,8 @@ fn window_only_flag(arg: &str) -> Option<bool> {
         "--data-dir" | "--assets" => Some(true),
         // asking for the window itself is a play command
         "--play" => Some(false),
+        // the diagnostic chatter: it changes nothing about *what* runs, so `antics -v` plays
+        "--verbose" | "-v" => Some(false),
         // the windowed round's speaker, the spy marker, the panel's idle timeout
         "--sound" | "--no-sound" | "--no-panel-auto" | "--marker" | "--no-marker" => Some(false),
         "--panel-auto" => Some(true),
@@ -1269,6 +1279,13 @@ fn default_play(args: &[String]) -> bool {
 /// The first argument that says "headless" — the one to name when `--play` cannot be honoured.
 fn first_headless_flag(args: &[String]) -> Option<&str> {
     args.iter().map(String::as_str).find(|a| headless_output_flag(a))
+}
+
+/// **Did the player ask for the diagnostic chatter?** `-v` or `--verbose`, anywhere on the command
+/// line (it takes no value). Off by default: without it the program prints nothing informational,
+/// which is what a player double-clicking the binary expects. See [`verbose`].
+fn verbosity_requested(args: &[String]) -> bool {
+    args.iter().any(|a| a == "-v" || a == "--verbose")
 }
 
 /// **Does this run open on the intro?** Only a plain "play" does: `--play` or no arguments, the
@@ -1417,7 +1434,8 @@ fn main() -> ExitCode {
                 None => {
                     eprintln!(
                         "--install expects the folder holding your copy of the game\n\
-                         e.g. antics --install ~/dos/spy-vs-spy-iii"
+                         e.g. {} --install ~/dos/spy-vs-spy-iii",
+                        install::command()
                     );
                     return ExitCode::from(2);
                 }
@@ -1431,6 +1449,9 @@ fn main() -> ExitCode {
                 }
             },
             "--play" => play = true,
+            // **v0.1.2** — the diagnostic chatter. Recognised here so it is never an "unknown
+            // argument"; the switch itself is set once, after the loop (`verbosity_requested`).
+            "-v" | "--verbose" => {}
             "--sound" => sound_on = true,
             "--no-sound" => sound_on = false,
             "--sound-dump" => sound_dump_path = args.next().map(PathBuf::from),
@@ -1737,6 +1758,11 @@ fn main() -> ExitCode {
             }
         }
     }
+
+    // **v0.1.2** — the one place the chatter is switched on. Everything informational from here on
+    // (the intro's timing, the window, the selector, the round's item/room lines) is `note!`, which
+    // prints only when this is true; errors and explicitly-requested output never consult it.
+    verbose::set(verbosity_requested(&argv));
 
     // **stage 30** — `antics` with no arguments (or only window/data options) plays. v0.1.0 fell
     // through to the headless intro here and exited 0, which is exactly what the README, the release
@@ -2049,7 +2075,7 @@ fn main() -> ExitCode {
                 sel.launch = usize::from(opts.launch);
                 sel.players = opts.players - 1;
                 if opts.obj_clock {
-                    println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
+                    crate::note!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
                               sampled once per round — a fresh layout on every GO! and every \
                               restart; `--seed N` pins it");
                 }
@@ -2066,12 +2092,14 @@ fn main() -> ExitCode {
                 let demo_stream = match load_demo_stream(&dir) {
                     Ok(v) => v,
                     Err(e) => {
-                        eprintln!("antics: {e} — the panel's idle timeout is inert");
+                        // a missing DEMO.DAT only disarms the panel's idle timeout: a diagnostic,
+                        // not a failure, so it is `--verbose` material (v0.1.2)
+                        crate::note_err!("antics: {e} — the panel's idle timeout is inert");
                         Vec::new()
                     }
                 };
                 if demo_stream.is_empty() && panel_auto {
-                    println!("antics: no demo stream — a finished round will wait on the panel");
+                    crate::note!("antics: no demo stream — a finished round will wait on the panel");
                 }
                 return match play_app(win, &setup, sel, opts, exe, marker, start_in_round,
                                       sound_on, panel_auto, demo_stream, dump) {
@@ -2253,7 +2281,7 @@ fn main() -> ExitCode {
                 demo: None,
             };
             if opts.obj_clock {
-                println!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
+                crate::note!("antics: item placement seeded from the DOS clock (int 21h ah=2ch), \
                           sampled once per round — a fresh layout on every GO! and every \
                           restart; `--seed N` pins it");
             }
@@ -2269,7 +2297,8 @@ fn main() -> ExitCode {
             let demo_stream = match load_demo_stream(&exe_dir) {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("antics: {e} — the panel's idle timeout is inert");
+                    // see above: disarming the panel's timeout is a diagnostic (v0.1.2)
+                    crate::note_err!("antics: {e} — the panel's idle timeout is inert");
                     Vec::new()
                 }
             };
@@ -2984,7 +3013,7 @@ mod install_e2e_tests {
 #[cfg(test)]
 mod launch_tests {
     use super::{default_play, first_headless_flag, intro_dispatch_period, plays_intro,
-                INTRO_CARD_HOLD_TICKS, INTRO_FRAMES};
+                verbosity_requested, INTRO_CARD_HOLD_TICKS, INTRO_FRAMES};
 
     fn args(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
@@ -3071,6 +3100,55 @@ mod launch_tests {
         // and no play flag at all is the headless intro, exactly as before stage 30
         assert!(!plays_intro(false, "intro", &args(&[])));
         assert!(!plays_intro(false, "intro", &args(&["--frame", "0", "--shot", "f.bmp"])));
+    }
+
+    /// **v0.1.2 — the program is quiet unless asked.** The switch is one process-wide flag, off
+    /// until `-v` / `--verbose` is parsed; `note!` (every informational line in the program) reads
+    /// it and prints nothing while it is off. So the intro's banner, the window/speaker lines, the
+    /// selector banner and the per-event item/room lines cannot reach a terminal that did not ask
+    /// for them — which is what the owner saw as "the terminal prints what is happening all the
+    /// time".
+    ///
+    /// This test owns the flag for its whole life (it starts and ends off), so it asserts the
+    /// default as well as the two spellings.
+    #[test]
+    fn nothing_informational_is_printed_unless_asked() {
+        // the default a released binary starts with
+        assert!(!crate::verbose::on(), "the chatter defaults to off");
+        let quiet = crate::verbose::note_count();
+        crate::note!("there are {} states in the intro", INTRO_FRAMES);
+        assert_eq!(crate::verbose::note_count(), quiet, "`note!` printed while off");
+
+        // `-v` and `--verbose` both ask for it, wherever they sit on the line
+        assert!(verbosity_requested(&args(&["-v"])), "`antics -v`");
+        assert!(verbosity_requested(&args(&["--verbose"])), "`antics --verbose`");
+        assert!(verbosity_requested(&args(&["--play", "-v"])));
+        assert!(verbosity_requested(&args(&["-v", "--scene", "setup"])));
+        assert!(!verbosity_requested(&args(&[])), "no flag, no chatter");
+        assert!(!verbosity_requested(&args(&["--play", "--scale", "2"])));
+        assert!(!verbosity_requested(&args(&["--verbose=1"])), "it takes no value");
+
+        // and with it on, the same note is emitted (the old output, line for line)
+        crate::verbose::set(true);
+        let loud = crate::verbose::note_count();
+        crate::note!("there are {} states in the intro", INTRO_FRAMES);
+        assert_eq!(crate::verbose::note_count(), loud + 1, "`-v` did not bring it back");
+        crate::verbose::set(false);
+        assert!(!crate::verbose::on(), "and it can be turned off again");
+    }
+
+    /// `-v` changes nothing about *what* runs: like `--scale` or `--data-dir` it is a window-only
+    /// option, so `antics -v` and `antics --verbose` are play commands, and neither is ever
+    /// mistaken for a headless-output flag (which would make `--play -v` refuse to open a window).
+    #[test]
+    fn verbose_is_a_window_option_not_a_headless_one() {
+        assert!(default_play(&args(&["-v"])), "`antics -v` plays");
+        assert!(default_play(&args(&["--verbose"])), "`antics --verbose` plays");
+        assert!(default_play(&args(&["--verbose", "--scale", "4", "--no-sound"])));
+        assert_eq!(super::window_only_flag("-v"), Some(false));
+        assert_eq!(super::window_only_flag("--verbose"), Some(false));
+        assert!(plays_intro(true, "intro", &args(&["--verbose"])), "the intro still comes first");
+        assert_eq!(first_headless_flag(&args(&["--verbose"])), None);
     }
 
     /// **The intro's pacing is the recording's, at the original's frame rate.**

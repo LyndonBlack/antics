@@ -16,8 +16,9 @@ in the releases. You need to own the game.
 > per-user data directory:
 >
 > ```bash
-> antics --install ~/svs3      # a folder containing your unzipped original
-> antics                       # play
+> # from the folder you unpacked antics in (Windows: antics.exe ...)
+> ./antics --install ~/svs3    # a folder containing your unzipped original
+> ./antics                     # play
 > ```
 >
 > Sizes, sha256 hashes of the supported release, per-OS instructions, controls, troubleshooting and
@@ -37,8 +38,7 @@ in the releases. You need to own the game.
 
 ## What it does not do
 
-No score or lives screen (the original has none either). The sound is the original's cues played
-through a simple tone generator, not the PC speaker hardware itself (`--no-sound` mutes it). Known
+The sound is the original's cues played through a simple tone generator, not the PC speaker hardware itself (`--no-sound` mutes it). Known
 small differences from the original, each with its evidence, are listed in `docs/DEVELOPERS.md`.
 
 ## Install
@@ -47,17 +47,21 @@ Download the archive for your platform from this repository's **Releases** page,
 
 | OS | install | run |
 |---|---|---|
-| Linux | `antics --install ~/svs3` | `antics` |
+| Linux | `./antics --install ~/svs3` | `./antics` |
 | Windows | `antics.exe --install .\svs3` | `antics.exe` |
 | macOS | `./antics --install ~/svs3` | `./antics` |
+
+Run these from the folder you unpacked it in (or put `antics` on your `PATH`, e.g. move it to
+`~/.local/bin`). On Linux and macOS a binary in the current directory is not on `PATH`, so the
+`./` is part of the command; Windows searches the current directory and the file is `antics.exe`.
 
 `~/svs3` is any folder that holds your unzipped copy of the game. `--install` copies its nine files
 into a per-user directory: `~/.local/share/antics` (Linux, or `$XDG_DATA_HOME/antics`),
 `%APPDATA%\antics` (Windows), `~/Library/Application Support/antics` (macOS). `--data-dir DIR`
 overrides it for one run. If the data is missing, the program says so and tells you the command to
-run.
+run, spelled the way that works on your platform (`./antics --install ...` on Linux and macOS).
 
-Run `antics` with no arguments (or `antics --play`) to play. It opens the window and plays the
+Run it with no arguments (or `--play`) to play. It opens the window and plays the
 original's own sequence: the intro — the MAXX OUT! card, then the animated arctic title scene, which
 ends by itself, or immediately on `Return`, `Space`, `Esc` or a click — then the setup selector, then
 the rounds, each of which returns to the selector. Closing the window quits at any point.
@@ -110,14 +114,22 @@ direction buries it. The full gesture table, with the original's routines, is in
 
 The window is the normal way to play; the other flags exist because the port is verified against
 recordings, and a few of them are handy. A command line made only of window and data options
-(`--scale`, `--data-dir`, `--no-sound`, `--fps`, `--panel-auto`, ...) plays too; anything that asks
-for headless output (`--shot`, `--state`, `--frame`, `--scene`, `--script`, `--demo`, `--install`,
-`--where`) keeps its own meaning and does not open a window.
+(`--scale`, `--data-dir`, `--no-sound`, `--fps`, `--panel-auto`, `--verbose`, ...) plays too;
+anything that asks for headless output (`--shot`, `--state`, `--frame`, `--scene`, `--script`,
+`--demo`, `--install`, `--where`) keeps its own meaning and does not open a window.
+
+The program is **quiet**: during play it prints nothing at all. `--verbose` (`-v`) brings back the
+lines it uses to describe what it is doing — the intro's timing, the window and speaker, what
+happens in the selector, every pickup, drop and room change, the panel's idle timeout. Errors and
+the output of a flag that exists to print something (`--state`, `--layout`, `--install`, ...) are
+printed either way; if something seems wrong, run with `-v` and the reason is usually one of those
+lines.
 
 | flag | meaning |
 |---|---|
 | *(none)* | play: the intro, then the selector, then the rounds |
 | `--play` | open the SDL2 window (3x integer scale, 960x600) — the same as no arguments |
+| `--verbose`, `-v` | print what the program is doing (off by default: a plain run prints nothing) |
 | `--scale N` | window scale, 1-8 |
 | `--data-dir DIR` | use a different data directory for this run |
 | `--scene setup --play` / `--scene round --play` | start on the selector / straight into a round |
@@ -136,7 +148,7 @@ aids — for anyone working on the port.
 
 ## Status
 
-Version 0.1.1. The intro, the setup selector and the round are playable end to end for one or two
+Version 0.1.2. The intro, the setup selector and the round are playable end to end for one or two
 players, and are verified against recordings of the original running. It is unofficial and
 non-commercial; see [docs/NOTICE.md](docs/NOTICE.md).
 

@@ -4,6 +4,21 @@ All notable changes to `antics` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-10-31
+
+### Changed
+- The program is quiet by default: the informational lines it printed while it ran (the intro's
+  timing, the window and speaker, the selector, every pickup, drop and room change, the panel's
+  idle timeout) are printed only with `--verbose` / `-v`, which restores all of them. Errors, usage
+  errors, `--install`/`--where`'s output and the output of flags that exist to print something
+  (`--state`, `--layout`, `--tick-trace`, ...) are unchanged.
+
+### Fixed
+- The Linux and macOS instructions, and the messages the program prints, use `./antics`: a binary
+  in the folder you unpacked it in is not on `PATH`, so `antics --install ...` failed with
+  `command not found`. Windows keeps `antics.exe`. The "data not found" message says once how to
+  run it from the folder it came in, or to put it on `PATH`.
+
 ## [0.1.1] - 2026-10-31
 
 ### Fixed

@@ -71,6 +71,11 @@ advice. A second-hand copy of the original disks is the clean route.
 
 You need the `antics` binary for your platform and your own unzipped copy of the game.
 
+**Run the commands from the folder you unpacked `antics` in.** On Linux and macOS a binary in the
+current directory is not on `PATH`, so the commands below are spelled `./antics`; if you would
+rather type `antics`, put it on your `PATH` (e.g. move it to `~/.local/bin`). On Windows the
+current directory is searched and the file is `antics.exe`, so `.\antics.exe` works as shown.
+
 ### Linux
 
 ```bash
@@ -80,11 +85,13 @@ unzip /path/to/your/spy-vs-spy-3.zip          # or however your copy is packaged
 #    you should now see spy.exe, spytitl.exe, TITLE.DAT, TRAP.PIC, MAXX.PIC,
 #    DEMO.DAT and TEXT1.DAT..TEXT3.DAT in this folder
 
-# 2. copy those nine files into the port's data directory (one time)
-antics --install ~/svs3
+# 2. copy those nine files into the port's data directory (one time), from the folder
+#    you unpacked antics in
+cd /path/to/the/unpacked/antics            # ./antics lives here
+./antics --install ~/svs3
 
 # 3. play
-antics
+./antics
 ```
 
 ### Windows (PowerShell)
@@ -117,14 +124,23 @@ xattr -d com.apple.quarantine ./antics
 If the data is missing, `antics` says so instead of starting:
 
 ```
-Original game data not found. Run: antics --install <folder with your copy of Spy vs Spy III: Arctic Antics>. See docs/YOU-NEED-THE-ORIGINAL.md
+Original game data not found.
+Run: ./antics --install <folder with your copy of Spy vs Spy III: Arctic Antics>
+Run it from the folder you unpacked it in, as shown, or put the binary on your PATH
+(e.g. move it to ~/.local/bin).
+(looked in ~/.local/share/antics)
+See docs/YOU-NEED-THE-ORIGINAL.md
 ```
+
+(On Windows the command line reads `antics.exe --install ...` and the PATH note is left out.)
 
 Then `antics` with no arguments plays, in the original's order: the intro first (the MAXX OUT! card
 for its own 15 seconds, then the animated arctic title scene — `Return`, `Space`, `Esc` or a mouse
 click skips the whole intro), then the setup selector, then a round, and every finished or abandoned
 round returns to the selector. Closing the window quits at any point. `antics --scene setup --play`
-skips the intro if you would rather go straight to the options screen.
+skips the intro if you would rather go straight to the options screen. It prints nothing while it
+plays; `./antics --verbose` (or `-v`) prints what it is doing, which is the first thing to try if
+something seems wrong.
 
 ## Where the files land
 
@@ -147,9 +163,11 @@ Points the port at a different data directory for that run, e.g. to keep a copy 
 or to test two installs side by side:
 
 ```bash
-antics --data-dir /media/usb/antics-data
-antics --install ~/svs3 --data-dir /media/usb/antics-data
+./antics --data-dir /media/usb/antics-data
+./antics --install ~/svs3 --data-dir /media/usb/antics-data
 ```
+
+(`antics.exe ...` on Windows.)
 
 ## Troubleshooting
 
@@ -161,15 +179,24 @@ executables, because the code it drives *is* `spy.exe`.
 **A file is missing from the data directory.** Run `--install` again pointing at the folder that has
 your copy. If one of the nine files is missing from that folder, your copy is incomplete.
 
+**`antics: command not found`.** You are in the folder you unpacked, where the binary is not on
+`PATH` yet: type `./antics` (Linux and macOS), or put the binary somewhere on your `PATH` (e.g.
+`~/.local/bin`). Windows runs `.\antics.exe` from the same folder.
+
+**The program starts and prints nothing.** That is v0.1.2's default: it only reports what it is
+doing when asked. Add `--verbose` (or `-v`) to see the intro's timing, the window and speaker, the
+selector's keys, and every pickup, drop and room change. Errors, usage errors and the output of
+flags like `--state` or `--install` are printed either way.
+
 **No sound.** `antics` plays the original's sound cues through its own tone generator (a square wave
 like the PC speaker's), and `--no-sound` mutes them. A machine with no audio device is not a problem:
-the port says "no audio device — running silent" and plays on.
+`--verbose` says "no audio device — running silent" and play continues.
 
 **The window does not appear.** `antics` now says why instead of exiting quietly. On Linux the usual
 cause is that there is no display to open a window on: `SDL could not open a window: ... Is a
 display available?`. Set `DISPLAY` (X11) or `WAYLAND_DISPLAY` (Wayland), and check the SDL2 video
 backends are installed (`libsdl2-2.0-0`); over SSH, `ssh -X` forwards X11. On a machine with no
-display at all, the headless modes need no window — `antics --scene setup --shot setup.bmp` renders
+display at all, the headless modes need no window — `./antics --scene setup --shot setup.bmp` renders
 the selector to a file.
 
 **macOS: "antics cannot be opened because the developer cannot be verified."** The binary is not
