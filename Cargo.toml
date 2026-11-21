@@ -15,7 +15,7 @@ categories = ["games", "emulators"]
 # front-end (milestone 3), behind the default-on `window` feature so it can be switched off with
 # `--no-default-features` on a machine without the SDL2 dev libraries.
 # ADR 0001 decided Rust + sdl2 0.38 against the system SDL2 2.32.10 dev libraries.
-sdl2 = { version = "0.38", optional = true }
+sdl2 = { version = "0.39", optional = true }
 
 [features]
 default = ["window"]
